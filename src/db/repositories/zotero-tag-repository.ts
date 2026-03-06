@@ -1,12 +1,18 @@
 import type { Prisma, PrismaClient } from "../../generated/prisma";
+import { toIsoDate } from "../../lib/utils";
 import type {
+  GeneratedStructuredTags,
   ParsedStructuredContentTag,
   ResearchTypeCategoryValue,
   StructuredTagParseStatusValue,
+  TagGenerationItemStatusValue,
+  TagGenerationJobStatusValue,
+  TagGenerationJobSummary,
+  TagGenerationRepository,
   TagSemanticsRepository
 } from "../../modules/tagging/types";
 
-export class PrismaZoteroTagRepository implements TagSemanticsRepository {
+export class PrismaZoteroTagRepository implements TagSemanticsRepository, TagGenerationRepository {
   constructor(private readonly db: PrismaClient) {}
 
   async listItemsForParsing(input?: { zoteroItemKeys?: string[] }) {
@@ -126,6 +132,172 @@ export class PrismaZoteroTagRepository implements TagSemanticsRepository {
       invalidResearchTypeTags
     };
   }
+
+  async listSelectedItemsMissingContentTags(input?: { limit?: number }) {
+    const selectedItems = await this.db.zoteroItemRaw.findMany({
+      where: {
+        itemCollections: {
+          some: {
+            collection: {
+              effectivePriority: {
+                is: {
+                  priority: {
+                    in: ["PRIMARY", "SECONDARY"]
+                  }
+                }
+              }
+            }
+          }
+        },
+        contentTags: {
+          none: {}
+        },
+        contentRecallTags: {
+          none: {
+            provenance: "GENERATED"
+          }
+        },
+        researchTypeTags: {
+          none: {
+            provenance: "GENERATED"
+          }
+        }
+      },
+      orderBy: [{ dateAdded: "desc" }, { updatedAt: "desc" }],
+      ...(input?.limit && input.limit > 0 ? { take: input.limit } : {}),
+      select: {
+        id: true,
+        zoteroItemKey: true,
+        title: true,
+        abstractNote: true
+      }
+    });
+
+    return selectedItems.map((item) => ({
+      itemId: item.id,
+      zoteroItemKey: item.zoteroItemKey,
+      title: item.title ?? undefined,
+      abstractNote: item.abstractNote ?? undefined
+    }));
+  }
+
+  async createGenerationJob(input: { provider: string }) {
+    const job = await this.db.zoteroTagGenerationJob.create({
+      data: {
+        provider: input.provider,
+        status: "RUNNING"
+      },
+      select: {
+        id: true
+      }
+    });
+
+    return { id: job.id };
+  }
+
+  async appendGenerationJobItem(input: {
+    jobId: string;
+    itemId: string;
+    status: TagGenerationItemStatusValue;
+    usedFallback: boolean;
+    errorMessage?: string;
+  }) {
+    const data: Prisma.ZoteroTagGenerationJobItemUncheckedCreateInput = {
+      jobId: input.jobId,
+      itemId: input.itemId,
+      status: toDbGenerationItemStatus(input.status),
+      usedFallback: input.usedFallback,
+      errorMessage: input.errorMessage ?? null
+    };
+
+    await this.db.zoteroTagGenerationJobItem.upsert({
+      where: {
+        jobId_itemId: {
+          jobId: input.jobId,
+          itemId: input.itemId
+        }
+      },
+      create: data,
+      update: data
+    });
+  }
+
+  async replaceGeneratedStructuredTags(input: {
+    itemId: string;
+    jobId: string;
+    generated: GeneratedStructuredTags;
+  }) {
+    await this.db.$transaction(async (tx) => {
+      await tx.zoteroItemContentRecallTag.deleteMany({
+        where: { itemId: input.itemId, provenance: "GENERATED" }
+      });
+      await tx.zoteroItemResearchTypeTag.deleteMany({
+        where: { itemId: input.itemId, provenance: "GENERATED" }
+      });
+
+      await tx.zoteroItemContentRecallTag.create({
+        data: {
+          itemId: input.itemId,
+          rawTag: toContentRecallRawTag(input.generated.contentRecallLabel),
+          label: input.generated.contentRecallLabel,
+          provenance: "GENERATED",
+          generationJobId: input.jobId,
+          parseStatus: "PARSED"
+        }
+      });
+
+      await tx.zoteroItemResearchTypeTag.create({
+        data: {
+          itemId: input.itemId,
+          rawTag: toResearchTypeRawTag(input.generated),
+          rawCategoryToken: input.generated.researchCategory,
+          category: toDbResearchTypeCategory(input.generated.researchCategory),
+          primaryKeyword: input.generated.primaryKeyword,
+          secondaryKeyword: input.generated.secondaryKeyword ?? null,
+          provenance: "GENERATED",
+          generationJobId: input.jobId,
+          parseStatus: "PARSED"
+        }
+      });
+    });
+  }
+
+  async markGenerationJobFinished(input: {
+    jobId: string;
+    status: TagGenerationJobStatusValue;
+    selectedItemsCount: number;
+    missingItemsCount: number;
+    generatedItemsCount: number;
+    fallbackItemsCount: number;
+    errorMessage?: string;
+  }) {
+    const job = await this.db.zoteroTagGenerationJob.update({
+      where: { id: input.jobId },
+      data: {
+        status: toDbGenerationJobStatus(input.status),
+        finishedAt: new Date(),
+        selectedItemsCount: input.selectedItemsCount,
+        missingItemsCount: input.missingItemsCount,
+        generatedItemsCount: input.generatedItemsCount,
+        fallbackItemsCount: input.fallbackItemsCount,
+        errorMessage: input.errorMessage ?? null
+      }
+    });
+
+    return mapJobSummary(job);
+  }
+
+  async getLatestGenerationJob(): Promise<TagGenerationJobSummary | null> {
+    const job = await this.db.zoteroTagGenerationJob.findFirst({
+      orderBy: [{ startedAt: "desc" }, { createdAt: "desc" }]
+    });
+
+    if (!job) {
+      return null;
+    }
+
+    return mapJobSummary(job);
+  }
 }
 
 function toStringArray(value: Prisma.JsonValue | null): string[] {
@@ -163,4 +335,81 @@ function toDbParseStatus(status: StructuredTagParseStatusValue) {
     default:
       return "UNPARSED";
   }
+}
+
+function toDbGenerationJobStatus(status: TagGenerationJobStatusValue) {
+  if (status === "running") {
+    return "RUNNING";
+  }
+  if (status === "success") {
+    return "SUCCESS";
+  }
+  if (status === "partial") {
+    return "PARTIAL";
+  }
+  return "FAILED";
+}
+
+function toDbGenerationItemStatus(status: TagGenerationItemStatusValue) {
+  if (status === "generated") {
+    return "GENERATED";
+  }
+  if (status === "skipped_unavailable") {
+    return "SKIPPED_UNAVAILABLE";
+  }
+  return "FAILED";
+}
+
+function fromDbGenerationJobStatus(status: "RUNNING" | "SUCCESS" | "PARTIAL" | "FAILED") {
+  if (status === "RUNNING") {
+    return "running";
+  }
+  if (status === "SUCCESS") {
+    return "success";
+  }
+  if (status === "PARTIAL") {
+    return "partial";
+  }
+  return "failed";
+}
+
+function mapJobSummary(job: {
+  id: string;
+  status: "RUNNING" | "SUCCESS" | "PARTIAL" | "FAILED";
+  provider: string;
+  startedAt: Date;
+  finishedAt: Date | null;
+  selectedItemsCount: number;
+  missingItemsCount: number;
+  generatedItemsCount: number;
+  fallbackItemsCount: number;
+  errorMessage: string | null;
+}): TagGenerationJobSummary {
+  return {
+    id: job.id,
+    status: fromDbGenerationJobStatus(job.status),
+    provider: job.provider,
+    startedAt: toIsoDate(job.startedAt),
+    finishedAt: job.finishedAt ? toIsoDate(job.finishedAt) : undefined,
+    selectedItemsCount: job.selectedItemsCount,
+    missingItemsCount: job.missingItemsCount,
+    generatedItemsCount: job.generatedItemsCount,
+    fallbackItemsCount: job.fallbackItemsCount,
+    errorMessage: job.errorMessage ?? undefined
+  };
+}
+
+function toContentRecallRawTag(label: string): string {
+  const normalized = label.trim();
+  return normalized.startsWith("#") ? normalized : `#${normalized}`;
+}
+
+function toResearchTypeRawTag(generated: GeneratedStructuredTags): string {
+  const category = generated.researchCategory;
+  const primary = generated.primaryKeyword.trim();
+  const secondary = generated.secondaryKeyword?.trim();
+  if (secondary) {
+    return `#${category} | ${primary}, ${secondary}`;
+  }
+  return `#${category} | ${primary}`;
 }

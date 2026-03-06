@@ -39,6 +39,24 @@ enum StructuredTagParseStatus {
   UNPARSED
 }
 
+enum TagProvenance {
+  ORIGINAL
+  GENERATED
+}
+
+enum TagGenerationJobStatus {
+  RUNNING
+  SUCCESS
+  PARTIAL
+  FAILED
+}
+
+enum TagGenerationItemStatus {
+  GENERATED
+  SKIPPED_UNAVAILABLE
+  FAILED
+}
+
 model ZoteroSyncRun {
   id               String           @id @default(cuid())
   mode             ZoteroSyncMode
@@ -76,6 +94,7 @@ model ZoteroItemRaw {
   contentTags        ZoteroItemContentTag[]
   contentRecallTags  ZoteroItemContentRecallTag[]
   researchTypeTags   ZoteroItemResearchTypeTag[]
+  generationJobItems ZoteroTagGenerationJobItem[]
 
   @@index([syncedAt])
   @@index([libraryVersion])
@@ -145,13 +164,18 @@ model ZoteroItemContentRecallTag {
   itemId       String
   rawTag       String
   label        String?
+  provenance   TagProvenance            @default(ORIGINAL)
+  generationJobId String?
   parseStatus  StructuredTagParseStatus
   createdAt    DateTime                 @default(now())
   updatedAt    DateTime                 @updatedAt
   item         ZoteroItemRaw            @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  generationJob ZoteroTagGenerationJob? @relation(fields: [generationJobId], references: [id], onDelete: SetNull)
 
   @@unique([itemId, rawTag])
   @@index([itemId])
+  @@index([provenance])
+  @@index([generationJobId])
   @@index([parseStatus])
 }
 
@@ -163,14 +187,19 @@ model ZoteroItemResearchTypeTag {
   category          ResearchTypeCategory?
   primaryKeyword    String?
   secondaryKeyword  String?
+  provenance        TagProvenance            @default(ORIGINAL)
+  generationJobId   String?
   parseStatus       StructuredTagParseStatus
   createdAt         DateTime                 @default(now())
   updatedAt         DateTime                 @updatedAt
   item              ZoteroItemRaw            @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  generationJob     ZoteroTagGenerationJob?  @relation(fields: [generationJobId], references: [id], onDelete: SetNull)
 
   @@unique([itemId, rawTag])
   @@index([itemId])
   @@index([category])
+  @@index([provenance])
+  @@index([generationJobId])
   @@index([parseStatus])
 }
 
@@ -196,4 +225,42 @@ model ZoteroCollectionEffectivePriority {
 
   @@index([priority])
   @@index([isExplicitOverride])
+}
+
+model ZoteroTagGenerationJob {
+  id                 String                     @id @default(cuid())
+  status             TagGenerationJobStatus     @default(RUNNING)
+  provider           String
+  startedAt          DateTime                   @default(now())
+  finishedAt         DateTime?
+  selectedItemsCount Int                        @default(0)
+  missingItemsCount  Int                        @default(0)
+  generatedItemsCount Int                       @default(0)
+  fallbackItemsCount Int                        @default(0)
+  errorMessage       String?
+  createdAt          DateTime                   @default(now())
+  updatedAt          DateTime                   @updatedAt
+  items              ZoteroTagGenerationJobItem[]
+  generatedContentRecallTags ZoteroItemContentRecallTag[]
+  generatedResearchTypeTags  ZoteroItemResearchTypeTag[]
+
+  @@index([status, startedAt])
+}
+
+model ZoteroTagGenerationJobItem {
+  id           String                  @id @default(cuid())
+  jobId        String
+  itemId       String
+  status       TagGenerationItemStatus
+  usedFallback Boolean                 @default(false)
+  errorMessage String?
+  createdAt    DateTime                @default(now())
+  updatedAt    DateTime                @updatedAt
+  job          ZoteroTagGenerationJob  @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  item         ZoteroItemRaw           @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@unique([jobId, itemId])
+  @@index([jobId])
+  @@index([itemId])
+  @@index([status])
 }
