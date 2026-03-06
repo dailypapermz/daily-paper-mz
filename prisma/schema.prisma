@@ -1,8 +1,89 @@
 generator client {
   provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
 }
 
 datasource db {
   provider = "sqlite"
   url      = env("DATABASE_URL")
+}
+
+enum ZoteroSyncMode {
+  FULL
+  INCREMENTAL
+}
+
+enum ZoteroSyncStatus {
+  RUNNING
+  SUCCESS
+  FAILED
+}
+
+model ZoteroSyncRun {
+  id               String           @id @default(cuid())
+  mode             ZoteroSyncMode
+  status           ZoteroSyncStatus @default(RUNNING)
+  startedAt        DateTime         @default(now())
+  finishedAt       DateTime?
+  sinceVersion     Int?
+  libraryVersion   Int?
+  itemsCount       Int              @default(0)
+  collectionsCount Int              @default(0)
+  mappingsCount    Int              @default(0)
+  errorMessage     String?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  @@index([status, startedAt])
+}
+
+model ZoteroItemRaw {
+  id                 String                 @id @default(cuid())
+  zoteroItemKey      String                 @unique
+  zoteroVersion      Int?
+  title              String?
+  abstractNote       String?
+  dateAdded          DateTime?
+  rawTagsJson        Json?
+  rawCollectionsJson Json?
+  sourcePayloadJson  Json
+  syncedAt           DateTime
+  libraryVersion     Int?
+  createdAt          DateTime               @default(now())
+  updatedAt          DateTime               @updatedAt
+  itemCollections    ZoteroItemCollection[]
+
+  @@index([syncedAt])
+  @@index([libraryVersion])
+}
+
+model ZoteroCollection {
+  id                  String                 @id @default(cuid())
+  zoteroCollectionKey String                 @unique
+  zoteroVersion       Int?
+  name                String
+  parentCollectionKey String?
+  path                String?
+  sourcePayloadJson   Json
+  syncedAt            DateTime
+  libraryVersion      Int?
+  createdAt           DateTime               @default(now())
+  updatedAt           DateTime               @updatedAt
+  itemCollections     ZoteroItemCollection[]
+
+  @@index([parentCollectionKey])
+  @@index([syncedAt])
+}
+
+model ZoteroItemCollection {
+  id           String           @id @default(cuid())
+  itemId       String
+  collectionId String
+  mappedAt     DateTime         @default(now())
+  item         ZoteroItemRaw    @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  collection   ZoteroCollection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+
+  @@unique([itemId, collectionId])
+  @@index([itemId])
+  @@index([collectionId])
 }
