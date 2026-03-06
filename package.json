@@ -1,26 +1,30 @@
 {
-  "name": "daily-paper",
-  "version": "0.1.0",
-  "private": true,
-  "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
-    "typecheck": "tsc --noEmit",
-    "prisma:generate": "prisma generate",
-    "prisma:migrate": "prisma migrate dev"
-  },
-  "dependencies": {
-    "next": "^15.0.0",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0",
-    "@prisma/client": "^6.0.0"
-  },
-  "devDependencies": {
-    "typescript": "^5.7.0",
-    "@types/node": "^22.0.0",
-    "@types/react": "^19.0.0",
-    "@types/react-dom": "^19.0.0",
-    "prisma": "^6.0.0"
-  }
+    "name":  "daily-paper",
+    "version":  "0.1.0",
+    "private":  true,
+    "scripts":  {
+                    "dev":  "next dev",
+                    "build":  "next build",
+                    "start":  "next start",
+                    "typecheck":  "tsc --noEmit",
+                    "prisma:generate":  "prisma generate",
+                    "prisma:migrate":  "prisma migrate dev",
+                    "check:env":  "node scripts/check-env.mjs",
+                    "predev":  "npm run check:env",
+                    "prestart":  "npm run check:env"
+                },
+    "dependencies":  {
+                         "next":  "^15.0.0",
+                         "react":  "^19.0.0",
+                         "react-dom":  "^19.0.0",
+                         "@prisma/client":  "^6.0.0",
+                         "dotenv":  "^16.6.1"
+                     },
+    "devDependencies":  {
+                            "typescript":  "^5.7.0",
+                            "@types/node":  "^22.0.0",
+                            "@types/react":  "^19.0.0",
+                            "@types/react-dom":  "^19.0.0",
+                            "prisma":  "^6.0.0"
+                        }
 }

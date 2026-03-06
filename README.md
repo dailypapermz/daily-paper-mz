@@ -10,23 +10,27 @@ Scaffold for the daily literature triage MVP.
 ## Local Setup
 1. Install dependencies:
    - `npm install`
-2. Create `.env` in project root with:
-   - `DATABASE_URL="file:./prisma/dev.db"`
-3. Generate Prisma client:
+2. Create `.env` from `.env.example` and set required values:
+   - `DATABASE_URL`
+   - `ZOTERO_KEY`
+   - `ZOTERO_ID`
+3. Validate environment:
+   - `npm run check:env`
+4. Generate Prisma client:
    - `npm run prisma:generate`
-4. Start development server:
+5. Start development server:
    - `npm run dev`
-5. Verify health route:
+6. Verify health route:
    - `http://localhost:3000/api/health`
 
 ## Current Status
-This issue only scaffolds project structure and baseline runtime.
-Business logic is intentionally deferred to subsequent issues.
+This repository currently contains scaffold and shared foundation modules.
+Feature/business modules are implemented issue by issue.
 
 ## Directory Highlights
 - `src/app`: Next.js app router pages and route handlers
 - `src/modules`: feature module placeholders aligned with MVP architecture
 - `src/db`: Prisma/data access placeholders
-- `src/lib`: shared config/types/logging placeholders
+- `src/lib`: shared config/types/logging/utilities
 - `src/jobs`: scheduler/job placeholders
 - `prisma/schema.prisma`: initial Prisma setup
