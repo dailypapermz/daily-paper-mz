@@ -19,6 +19,12 @@ enum ZoteroSyncStatus {
   FAILED
 }
 
+enum CollectionPriority {
+  PRIMARY
+  SECONDARY
+  EXCLUDED
+}
+
 model ZoteroSyncRun {
   id               String           @id @default(cuid())
   mode             ZoteroSyncMode
@@ -60,8 +66,8 @@ model ZoteroItemRaw {
 }
 
 model ZoteroCollection {
-  id                  String                 @id @default(cuid())
-  zoteroCollectionKey String                 @unique
+  id                  String                           @id @default(cuid())
+  zoteroCollectionKey String                           @unique
   zoteroVersion       Int?
   name                String
   parentCollectionKey String?
@@ -69,9 +75,11 @@ model ZoteroCollection {
   sourcePayloadJson   Json
   syncedAt            DateTime
   libraryVersion      Int?
-  createdAt           DateTime               @default(now())
-  updatedAt           DateTime               @updatedAt
+  createdAt           DateTime                         @default(now())
+  updatedAt           DateTime                         @updatedAt
   itemCollections     ZoteroItemCollection[]
+  prioritySelection   ZoteroCollectionPrioritySelection?
+  effectivePriority   ZoteroCollectionEffectivePriority?
 
   @@index([parentCollectionKey])
   @@index([syncedAt])
@@ -91,27 +99,51 @@ model ZoteroItemCollection {
 }
 
 model ZoteroItemTagSignal {
-  id            String       @id @default(cuid())
+  id             String       @id @default(cuid())
   itemId         String       @unique
   attentionLevel Int          @default(0)
   rawStarTagsJson Json?
-  otherTagsJson   Json?
-  parsedAt        DateTime    @default(now())
-  updatedAt       DateTime    @updatedAt
-  item            ZoteroItemRaw @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  otherTagsJson  Json?
+  parsedAt       DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+  item           ZoteroItemRaw @relation(fields: [itemId], references: [id], onDelete: Cascade)
 
   @@index([attentionLevel])
 }
 
 model ZoteroItemContentTag {
   id        String       @id @default(cuid())
-  itemId     String
-  rawTag     String
-  createdAt  DateTime    @default(now())
-  updatedAt  DateTime    @updatedAt
-  item       ZoteroItemRaw @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  itemId    String
+  rawTag    String
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+  item      ZoteroItemRaw @relation(fields: [itemId], references: [id], onDelete: Cascade)
 
   @@unique([itemId, rawTag])
   @@index([itemId])
   @@index([rawTag])
+}
+
+model ZoteroCollectionPrioritySelection {
+  id          String             @id @default(cuid())
+  collectionId String             @unique
+  priority    CollectionPriority
+  selectedAt  DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+  collection  ZoteroCollection   @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+
+  @@index([priority])
+}
+
+model ZoteroCollectionEffectivePriority {
+  id                 String             @id @default(cuid())
+  collectionId       String             @unique
+  priority           CollectionPriority
+  isExplicitOverride Boolean
+  computedAt         DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  collection         ZoteroCollection   @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+
+  @@index([priority])
+  @@index([isExplicitOverride])
 }
