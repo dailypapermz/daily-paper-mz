@@ -1,11 +1,16 @@
 import { describe, expect, it } from "vitest";
 
 import { DefaultTagSemanticsService } from "./tag-semantics.service";
-import type { TagSemanticsRepository } from "./types";
+import type {
+  ParsedStructuredContentTag,
+  TagSemanticsRepository,
+  TagParseSummary
+} from "./types";
 
 class FakeTagSemanticsRepository implements TagSemanticsRepository {
   private signals = new Map<string, { attentionLevel: number; rawStarTags: string[]; otherTags: string[] }>();
   private contentTags = new Map<string, string[]>();
+  private structuredTags = new Map<string, ParsedStructuredContentTag[]>();
 
   constructor(
     private readonly items: Array<{ itemId: string; zoteroItemKey: string; rawTags: string[] }>
@@ -36,32 +41,46 @@ class FakeTagSemanticsRepository implements TagSemanticsRepository {
     this.contentTags.set(input.itemId, input.contentTags);
   }
 
-  async getSummary() {
-    const maxAttentionLevel = Math.max(
-      0,
-      ...Array.from(this.signals.values()).map((signal) => signal.attentionLevel)
-    );
+  async replaceStructuredTags(input: { itemId: string; tags: ParsedStructuredContentTag[] }) {
+    this.structuredTags.set(input.itemId, input.tags);
+  }
+
+  async getSummary(): Promise<TagParseSummary> {
+    const allStructured = Array.from(this.structuredTags.values()).flat();
 
     return {
       itemsWithSignals: this.signals.size,
       contentTags: Array.from(this.contentTags.values()).reduce((acc, tags) => acc + tags.length, 0),
-      maxAttentionLevel
+      maxAttentionLevel: Math.max(
+        0,
+        ...Array.from(this.signals.values()).map((signal) => signal.attentionLevel)
+      ),
+      contentRecallTags: allStructured.filter((tag) => tag.tagType === "content_recall").length,
+      researchTypeTags: allStructured.filter((tag) => tag.tagType === "research_type").length,
+      invalidResearchTypeTags: allStructured.filter(
+        (tag) => tag.tagType === "research_type" && tag.parseStatus === "invalid_category"
+      ).length
     };
   }
 }
 
 describe("DefaultTagSemanticsService", () => {
-  it("parses and persists tag semantics", async () => {
+  it("parses and persists tag semantics with structured Tag1/Tag2 forms", async () => {
     const repository = new FakeTagSemanticsRepository([
       {
         itemId: "item-1",
         zoteroItemKey: "key-1",
-        rawTags: ["\u2B50\u2B50", "#topic", "normal"]
+        rawTags: [
+          "\u2B50\u2B50",
+          "#single-cell trajectory inference",
+          "#method | foundation model, multi-omics",
+          "normal"
+        ]
       },
       {
         itemId: "item-2",
         zoteroItemKey: "key-2",
-        rawTags: ["#another"]
+        rawTags: ["#invalid | keyword1, keyword2"]
       }
     ]);
 
@@ -71,14 +90,20 @@ describe("DefaultTagSemanticsService", () => {
     expect(result).toEqual({
       itemsProcessed: 2,
       signalsUpdated: 2,
-      contentTagsStored: 2
+      contentTagsStored: 3,
+      contentRecallTagsStored: 1,
+      researchTypeTagsStored: 2,
+      invalidResearchTypeTags: 1
     });
 
     const summary = await service.getSummary();
     expect(summary).toEqual({
       itemsWithSignals: 2,
-      contentTags: 2,
-      maxAttentionLevel: 2
+      contentTags: 3,
+      maxAttentionLevel: 2,
+      contentRecallTags: 1,
+      researchTypeTags: 2,
+      invalidResearchTypeTags: 1
     });
   });
 });

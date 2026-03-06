@@ -1,5 +1,10 @@
 import type { Prisma, PrismaClient } from "../../generated/prisma";
-import type { TagSemanticsRepository } from "../../modules/tagging/types";
+import type {
+  ParsedStructuredContentTag,
+  ResearchTypeCategoryValue,
+  StructuredTagParseStatusValue,
+  TagSemanticsRepository
+} from "../../modules/tagging/types";
 
 export class PrismaZoteroTagRepository implements TagSemanticsRepository {
   constructor(private readonly db: PrismaClient) {}
@@ -62,19 +67,63 @@ export class PrismaZoteroTagRepository implements TagSemanticsRepository {
     });
   }
 
+  async replaceStructuredTags(input: { itemId: string; tags: ParsedStructuredContentTag[] }) {
+    await this.db.$transaction(async (tx) => {
+      await tx.zoteroItemContentRecallTag.deleteMany({ where: { itemId: input.itemId } });
+      await tx.zoteroItemResearchTypeTag.deleteMany({ where: { itemId: input.itemId } });
+
+      const contentRecallTags = input.tags.filter((tag) => tag.tagType === "content_recall");
+      const researchTypeTags = input.tags.filter((tag) => tag.tagType === "research_type");
+
+      if (contentRecallTags.length > 0) {
+        await tx.zoteroItemContentRecallTag.createMany({
+          data: contentRecallTags.map((tag) => ({
+            itemId: input.itemId,
+            rawTag: tag.rawTag,
+            label: tag.contentRecallLabel ?? null,
+            parseStatus: toDbParseStatus(tag.parseStatus)
+          }))
+        });
+      }
+
+      if (researchTypeTags.length > 0) {
+        await tx.zoteroItemResearchTypeTag.createMany({
+          data: researchTypeTags.map((tag) => ({
+            itemId: input.itemId,
+            rawTag: tag.rawTag,
+            rawCategoryToken: tag.rawCategoryToken ?? null,
+            category: tag.researchCategory ? toDbResearchTypeCategory(tag.researchCategory) : null,
+            primaryKeyword: tag.primaryKeyword ?? null,
+            secondaryKeyword: tag.secondaryKeyword ?? null,
+            parseStatus: toDbParseStatus(tag.parseStatus)
+          }))
+        });
+      }
+    });
+  }
+
   async getSummary() {
-    const [itemsWithSignals, contentTags, aggregate] = await Promise.all([
-      this.db.zoteroItemTagSignal.count(),
-      this.db.zoteroItemContentTag.count(),
-      this.db.zoteroItemTagSignal.aggregate({
-        _max: { attentionLevel: true }
-      })
-    ]);
+    const [itemsWithSignals, contentTags, contentRecallTags, researchTypeTags, invalidResearchTypeTags, aggregate] =
+      await Promise.all([
+        this.db.zoteroItemTagSignal.count(),
+        this.db.zoteroItemContentTag.count(),
+        this.db.zoteroItemContentRecallTag.count(),
+        this.db.zoteroItemResearchTypeTag.count(),
+        this.db.zoteroItemResearchTypeTag.count({
+          where: { parseStatus: "INVALID_CATEGORY" }
+        }),
+        this.db.zoteroItemTagSignal.aggregate({
+          _max: { attentionLevel: true }
+        })
+      ]);
 
     return {
       itemsWithSignals,
       contentTags,
-      maxAttentionLevel: aggregate._max.attentionLevel ?? 0
+      maxAttentionLevel: aggregate._max.attentionLevel ?? 0,
+      contentRecallTags,
+      researchTypeTags,
+      invalidResearchTypeTags
     };
   }
 }
@@ -88,4 +137,30 @@ function toStringArray(value: Prisma.JsonValue | null): string[] {
     .filter((item): item is string => typeof item === "string")
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+function toDbResearchTypeCategory(category: ResearchTypeCategoryValue) {
+  switch (category) {
+    case "method":
+      return "METHOD";
+    case "biology":
+      return "BIOLOGY";
+    case "resource":
+      return "RESOURCE";
+    default:
+      return "BENCHMARK";
+  }
+}
+
+function toDbParseStatus(status: StructuredTagParseStatusValue) {
+  switch (status) {
+    case "parsed":
+      return "PARSED";
+    case "partial":
+      return "PARTIAL";
+    case "invalid_category":
+      return "INVALID_CATEGORY";
+    default:
+      return "UNPARSED";
+  }
 }
