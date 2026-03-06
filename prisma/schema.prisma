@@ -52,6 +52,8 @@ model ZoteroItemRaw {
   createdAt          DateTime               @default(now())
   updatedAt          DateTime               @updatedAt
   itemCollections    ZoteroItemCollection[]
+  tagSignal          ZoteroItemTagSignal?
+  contentTags        ZoteroItemContentTag[]
 
   @@index([syncedAt])
   @@index([libraryVersion])
@@ -86,4 +88,30 @@ model ZoteroItemCollection {
   @@unique([itemId, collectionId])
   @@index([itemId])
   @@index([collectionId])
+}
+
+model ZoteroItemTagSignal {
+  id            String       @id @default(cuid())
+  itemId         String       @unique
+  attentionLevel Int          @default(0)
+  rawStarTagsJson Json?
+  otherTagsJson   Json?
+  parsedAt        DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  item            ZoteroItemRaw @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@index([attentionLevel])
+}
+
+model ZoteroItemContentTag {
+  id        String       @id @default(cuid())
+  itemId     String
+  rawTag     String
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+  item       ZoteroItemRaw @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@unique([itemId, rawTag])
+  @@index([itemId])
+  @@index([rawTag])
 }
