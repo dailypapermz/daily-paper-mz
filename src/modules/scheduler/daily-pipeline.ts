@@ -38,50 +38,48 @@ export async function runDailyRecommendationPipeline(input?: {
   const recall = createRecallRankingService();
   const rerank = createRerankService();
 
-  const results: DailySchedulerSourceResult[] = [];
+  let results: DailySchedulerSourceResult[] = [];
 
-  for (const source of sourceList) {
-    try {
-      logger.info("Scheduler daily pipeline started for source", {
-        source,
-        runDate: input?.runDate
-      });
+  try {
+    logger.info("Scheduler daily aggregated pipeline started", {
+      sources: sourceList,
+      runDate: input?.runDate
+    });
 
-      const ingestResult = await ingestion.runSourceIngestion({
-        source,
-        runDate: input?.runDate
-      });
-      const runId = ingestResult.run.id;
+    const ingestResult = await ingestion.runAggregatedIngestion({
+      runDate: input?.runDate,
+      sources: [...sourceList]
+    });
+    const runId = ingestResult.run.id;
 
-      await enrich.enrichRun(runId);
-      await dedupe.runForIngestionRun(runId);
-      await summarize.generateForRun({ runId });
-      await recall.runRecall({ runId });
-      await rerank.runRerank({ runId });
+    await enrich.enrichRun(runId);
+    await dedupe.runForIngestionRun(runId);
+    await summarize.generateForRun({ runId });
+    await recall.runRecall({ runId });
+    await rerank.runRerank({ runId });
 
-      logger.info("Scheduler daily pipeline succeeded for source", {
-        source,
-        runId
-      });
+    logger.info("Scheduler daily aggregated pipeline succeeded", {
+      runId,
+      sourceCount: ingestResult.sourceSummaries.length
+    });
 
-      results.push({
-        source,
-        runId,
-        status: "success"
-      });
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "Unknown scheduler daily error";
-      logger.error("Scheduler daily pipeline failed for source", {
-        source,
-        errorMessage
-      });
+    results = ingestResult.sourceSummaries.map((entry) => ({
+      source: entry.source,
+      runId,
+      status: "success"
+    }));
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : "Unknown scheduler daily error";
+    logger.error("Scheduler daily aggregated pipeline failed", {
+      sources: sourceList,
+      errorMessage
+    });
 
-      results.push({
-        source,
-        status: "failed",
-        errorMessage
-      });
-    }
+    results = sourceList.map((source) => ({
+      source,
+      status: "failed",
+      errorMessage
+    }));
   }
 
   return {

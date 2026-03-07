@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  runSourceIngestion: vi.fn(),
+  runAggregatedIngestion: vi.fn(),
   enrichRun: vi.fn(),
   runForIngestionRun: vi.fn(),
   generateForRun: vi.fn(),
@@ -11,7 +11,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("../ingestion", () => ({
   createDailyIngestionService: () => ({
-    runSourceIngestion: mocks.runSourceIngestion
+    runAggregatedIngestion: mocks.runAggregatedIngestion
   })
 }));
 
@@ -49,7 +49,7 @@ import { runDailyRecommendationPipeline } from "./daily-pipeline";
 
 describe("runDailyRecommendationPipeline", () => {
   beforeEach(() => {
-    mocks.runSourceIngestion.mockReset();
+    mocks.runAggregatedIngestion.mockReset();
     mocks.enrichRun.mockReset();
     mocks.runForIngestionRun.mockReset();
     mocks.generateForRun.mockReset();
@@ -57,17 +57,23 @@ describe("runDailyRecommendationPipeline", () => {
     mocks.runRerank.mockReset();
   });
 
-  it("runs ingestion and downstream stages per source", async () => {
-    mocks.runSourceIngestion.mockResolvedValue({
-      run: { id: "run-1" }
+  it("runs aggregated ingestion and downstream stages once", async () => {
+    mocks.runAggregatedIngestion.mockResolvedValue({
+      run: { id: "run-1" },
+      sourceSummaries: [{ source: "arxiv", candidatesCount: 2 }]
     });
 
     const result = await runDailyRecommendationPipeline({
       sources: ["arxiv"]
     });
 
+    expect(mocks.runAggregatedIngestion).toHaveBeenCalledWith({
+      runDate: undefined,
+      sources: ["arxiv"]
+    });
     expect(result.sources).toHaveLength(1);
     expect(result.sources[0].status).toBe("success");
+    expect(result.sources[0].runId).toBe("run-1");
     expect(mocks.enrichRun).toHaveBeenCalledWith("run-1");
     expect(mocks.runForIngestionRun).toHaveBeenCalledWith("run-1");
     expect(mocks.generateForRun).toHaveBeenCalledWith({ runId: "run-1" });

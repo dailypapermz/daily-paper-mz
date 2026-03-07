@@ -12,7 +12,15 @@ export class PrismaDailyRecommendationRepository implements DailyRecommendationR
   async getLatestFeed(runId?: string): Promise<DailyRecommendationFeed | null> {
     const rerankRun = await this.db.dailyRerankRun.findFirst({
       where: {
-        ...(runId ? { runId } : {}),
+        ...(runId
+          ? { runId }
+          : {
+              run: {
+                is: {
+                  source: "AGGREGATED"
+                }
+              }
+            }),
         status: "SUCCESS"
       },
       include: {

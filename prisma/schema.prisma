@@ -92,6 +92,14 @@ enum CandidateSource {
   JOURNAL
 }
 
+enum DailyIngestionRunSource {
+  BIORXIV
+  ARXIV
+  PUBMED
+  JOURNAL
+  AGGREGATED
+}
+
 enum DailyIngestionRunStatus {
   RUNNING
   SUCCESS
@@ -432,7 +440,7 @@ model ProfileReminderCheck {
 
 model DailyIngestionRun {
   id             String                @id @default(cuid())
-  source         CandidateSource
+  source         DailyIngestionRunSource
   status         DailyIngestionRunStatus @default(RUNNING)
   runDate        DateTime
   startedAt      DateTime              @default(now())

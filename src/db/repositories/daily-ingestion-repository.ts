@@ -3,6 +3,7 @@ import { toIsoDate } from "../../lib/utils";
 import type {
   DailyCandidateRecord,
   DailyCandidateSourceValue,
+  DailyIngestionRunSourceValue,
   DailyIngestionRepository,
   DailyIngestionRunSummary,
   DailySourceAdapterCandidate
@@ -11,10 +12,10 @@ import type {
 export class PrismaDailyIngestionRepository implements DailyIngestionRepository {
   constructor(private readonly db: PrismaClient) {}
 
-  async createRun(input: { source: DailyCandidateSourceValue; runDate: Date }) {
+  async createRun(input: { source: DailyIngestionRunSourceValue; runDate: Date }) {
     const run = await this.db.dailyIngestionRun.create({
       data: {
-        source: toDbSource(input.source),
+        source: toDbRunSource(input.source),
         status: "RUNNING",
         runDate: input.runDate
       },
@@ -28,35 +29,37 @@ export class PrismaDailyIngestionRepository implements DailyIngestionRepository 
 
   async saveCandidates(input: {
     runId: string;
-    source: DailyCandidateSourceValue;
-    candidates: DailySourceAdapterCandidate[];
+    entries: Array<{
+      source: DailyCandidateSourceValue;
+      candidate: DailySourceAdapterCandidate;
+    }>;
   }) {
-    if (input.candidates.length === 0) {
+    if (input.entries.length === 0) {
       return 0;
     }
 
     await this.db.dailyCandidate.createMany({
-      data: input.candidates.map((candidate) => ({
+      data: input.entries.map((entry) => ({
         runId: input.runId,
-        source: toDbSource(input.source),
-        externalId: candidate.externalId,
-        title: candidate.title ?? null,
-        abstractNote: candidate.abstractNote ?? null,
-        publishedAt: candidate.publishedAt ?? null,
-        indexedAt: candidate.indexedAt ?? null,
-        url: candidate.url ?? null,
-        doi: candidate.doi ?? null,
-        pmid: candidate.pmid ?? null,
-        arxivId: candidate.arxivId ?? null,
-        bioRxivId: candidate.bioRxivId ?? null,
-        journalName: candidate.journalName ?? null,
-        authorsJson: candidate.authors as unknown as Prisma.InputJsonValue,
-        sourcePayloadJson: candidate.sourcePayload as Prisma.InputJsonValue,
+        source: toDbCandidateSource(entry.source),
+        externalId: entry.candidate.externalId,
+        title: entry.candidate.title ?? null,
+        abstractNote: entry.candidate.abstractNote ?? null,
+        publishedAt: entry.candidate.publishedAt ?? null,
+        indexedAt: entry.candidate.indexedAt ?? null,
+        url: entry.candidate.url ?? null,
+        doi: entry.candidate.doi ?? null,
+        pmid: entry.candidate.pmid ?? null,
+        arxivId: entry.candidate.arxivId ?? null,
+        bioRxivId: entry.candidate.bioRxivId ?? null,
+        journalName: entry.candidate.journalName ?? null,
+        authorsJson: entry.candidate.authors as unknown as Prisma.InputJsonValue,
+        sourcePayloadJson: entry.candidate.sourcePayload as Prisma.InputJsonValue,
         ingestedAt: new Date()
       }))
     });
 
-    return input.candidates.length;
+    return input.entries.length;
   }
 
   async markRunSucceeded(input: { runId: string; candidatesCount: number }) {
@@ -86,11 +89,11 @@ export class PrismaDailyIngestionRepository implements DailyIngestionRepository 
     return mapRunSummary(run);
   }
 
-  async getLatestRun(input?: { source?: DailyCandidateSourceValue }) {
+  async getLatestRun(input?: { source?: DailyIngestionRunSourceValue }) {
     const run = await this.db.dailyIngestionRun.findFirst({
       where: input?.source
         ? {
-            source: toDbSource(input.source)
+            source: toDbRunSource(input.source)
           }
         : undefined,
       orderBy: [{ startedAt: "desc" }, { createdAt: "desc" }]
@@ -112,7 +115,7 @@ export class PrismaDailyIngestionRepository implements DailyIngestionRepository 
     return rows.map((row) => ({
       id: row.id,
       runId: row.runId,
-      source: fromDbSource(row.source),
+      source: fromDbCandidateSource(row.source),
       externalId: row.externalId,
       title: row.title ?? undefined,
       abstractNote: row.abstractNote ?? undefined,
@@ -130,7 +133,14 @@ export class PrismaDailyIngestionRepository implements DailyIngestionRepository 
   }
 }
 
-function toDbSource(source: DailyCandidateSourceValue) {
+function toDbRunSource(source: DailyIngestionRunSourceValue) {
+  if (source === "aggregated") {
+    return "AGGREGATED";
+  }
+  return toDbCandidateSource(source);
+}
+
+function toDbCandidateSource(source: DailyCandidateSourceValue) {
   if (source === "biorxiv") {
     return "BIORXIV";
   }
@@ -143,7 +153,14 @@ function toDbSource(source: DailyCandidateSourceValue) {
   return "JOURNAL";
 }
 
-function fromDbSource(source: "BIORXIV" | "ARXIV" | "PUBMED" | "JOURNAL") {
+function fromDbRunSource(source: "BIORXIV" | "ARXIV" | "PUBMED" | "JOURNAL" | "AGGREGATED") {
+  if (source === "AGGREGATED") {
+    return "aggregated";
+  }
+  return fromDbCandidateSource(source);
+}
+
+function fromDbCandidateSource(source: "BIORXIV" | "ARXIV" | "PUBMED" | "JOURNAL") {
   if (source === "BIORXIV") {
     return "biorxiv";
   }
@@ -168,7 +185,7 @@ function fromDbStatus(status: "RUNNING" | "SUCCESS" | "FAILED") {
 
 function mapRunSummary(run: {
   id: string;
-  source: "BIORXIV" | "ARXIV" | "PUBMED" | "JOURNAL";
+  source: "BIORXIV" | "ARXIV" | "PUBMED" | "JOURNAL" | "AGGREGATED";
   status: "RUNNING" | "SUCCESS" | "FAILED";
   runDate: Date;
   startedAt: Date;
@@ -178,7 +195,7 @@ function mapRunSummary(run: {
 }): DailyIngestionRunSummary {
   return {
     id: run.id,
-    source: fromDbSource(run.source),
+    source: fromDbRunSource(run.source),
     status: fromDbStatus(run.status),
     runDate: toIsoDate(run.runDate),
     startedAt: toIsoDate(run.startedAt),

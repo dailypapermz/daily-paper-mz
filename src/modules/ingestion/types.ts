@@ -1,4 +1,5 @@
-﻿export type DailyCandidateSourceValue = "biorxiv" | "arxiv" | "pubmed" | "journal";
+export type DailyCandidateSourceValue = "biorxiv" | "arxiv" | "pubmed" | "journal";
+export type DailyIngestionRunSourceValue = DailyCandidateSourceValue | "aggregated";
 export type DailyIngestionRunStatusValue = "running" | "success" | "failed";
 
 export type DailySourceAdapterCandidate = {
@@ -38,13 +39,18 @@ export type DailyCandidateRecord = {
 
 export type DailyIngestionRunSummary = {
   id: string;
-  source: DailyCandidateSourceValue;
+  source: DailyIngestionRunSourceValue;
   status: DailyIngestionRunStatusValue;
   runDate: string;
   startedAt: string;
   finishedAt?: string;
   candidatesCount: number;
   errorMessage?: string;
+};
+
+export type AggregatedSourceIngestionSummary = {
+  source: DailyCandidateSourceValue;
+  candidatesCount: number;
 };
 
 export type JournalFeedSourceRecord = {
@@ -70,15 +76,17 @@ export interface JournalFeedRepository {
 }
 
 export interface DailyIngestionRepository {
-  createRun(input: { source: DailyCandidateSourceValue; runDate: Date }): Promise<{ id: string }>;
+  createRun(input: { source: DailyIngestionRunSourceValue; runDate: Date }): Promise<{ id: string }>;
   saveCandidates(input: {
     runId: string;
-    source: DailyCandidateSourceValue;
-    candidates: DailySourceAdapterCandidate[];
+    entries: Array<{
+      source: DailyCandidateSourceValue;
+      candidate: DailySourceAdapterCandidate;
+    }>;
   }): Promise<number>;
   markRunSucceeded(input: { runId: string; candidatesCount: number }): Promise<DailyIngestionRunSummary>;
   markRunFailed(input: { runId: string; errorMessage: string }): Promise<DailyIngestionRunSummary>;
-  getLatestRun(input?: { source?: DailyCandidateSourceValue }): Promise<DailyIngestionRunSummary | null>;
+  getLatestRun(input?: { source?: DailyIngestionRunSourceValue }): Promise<DailyIngestionRunSummary | null>;
   listCandidatesByRun(runId: string): Promise<DailyCandidateRecord[]>;
 }
 
@@ -87,5 +95,13 @@ export interface DailyIngestionService {
     source: DailyCandidateSourceValue;
     runDate?: string;
   }): Promise<{ run: DailyIngestionRunSummary; candidates: DailyCandidateRecord[] }>;
-  getLatestRun(input?: { source?: DailyCandidateSourceValue }): Promise<DailyIngestionRunSummary | null>;
+  runAggregatedIngestion(input?: {
+    runDate?: string;
+    sources?: DailyCandidateSourceValue[];
+  }): Promise<{
+    run: DailyIngestionRunSummary;
+    candidates: DailyCandidateRecord[];
+    sourceSummaries: AggregatedSourceIngestionSummary[];
+  }>;
+  getLatestRun(input?: { source?: DailyIngestionRunSourceValue }): Promise<DailyIngestionRunSummary | null>;
 }

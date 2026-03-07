@@ -1,0 +1,2 @@
+-- SQLite stores enum-backed fields as TEXT, so no physical table change is required here.
+-- This migration tracks the schema-level enum/type update for DailyIngestionRun.source.

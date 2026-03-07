@@ -1,15 +1,15 @@
-﻿import { AppError } from "../../lib/errors";
-import {
-  isCandidateInUtcDay,
-  normalizeAdapterCandidate,
-  resolveUtcDayWindow
-} from "./new-today";
+import { AppError } from "../../lib/errors";
+import { isCandidateInUtcDay, normalizeAdapterCandidate, resolveUtcDayWindow } from "./new-today";
 import type {
+  AggregatedSourceIngestionSummary,
+  DailyCandidateSourceValue,
   DailyIngestionRepository,
   DailyIngestionService,
   DailySourceAdapter,
   DailySourceAdapterCandidate
 } from "./types";
+
+const DEFAULT_SOURCES: DailyCandidateSourceValue[] = ["biorxiv", "arxiv", "pubmed", "journal"];
 
 export class DefaultDailyIngestionService implements DailyIngestionService {
   constructor(
@@ -17,17 +17,8 @@ export class DefaultDailyIngestionService implements DailyIngestionService {
     private readonly repository: DailyIngestionRepository
   ) {}
 
-  async runSourceIngestion(input: { source: "biorxiv" | "arxiv" | "pubmed" | "journal"; runDate?: string }) {
-    const adapter = this.adapters.get(input.source);
-
-    if (!adapter) {
-      throw new AppError(
-        "INGESTION_ADAPTER_NOT_CONFIGURED",
-        `No adapter configured for source '${input.source}'`,
-        400
-      );
-    }
-
+  async runSourceIngestion(input: { source: DailyCandidateSourceValue; runDate?: string }) {
+    const adapter = this.getAdapterOrThrow(input.source);
     const window = resolveUtcDayWindow(input.runDate);
     const runRecord = await this.repository.createRun({
       source: input.source,
@@ -35,17 +26,13 @@ export class DefaultDailyIngestionService implements DailyIngestionService {
     });
 
     try {
-      const fetched = await adapter.fetchCandidatesForDay(window);
-      const filtered = fetched
-        .map((candidate) => normalizeAdapterCandidate(candidate))
-        .filter((candidate) => isCandidateInUtcDay(candidate, window));
-
-      const valid = filtered.filter((candidate) => candidate.externalId.length > 0);
-
+      const candidates = await this.fetchValidCandidates(adapter, window);
       const candidatesCount = await this.repository.saveCandidates({
         runId: runRecord.id,
-        source: input.source,
-        candidates: valid
+        entries: candidates.map((candidate) => ({
+          source: input.source,
+          candidate
+        }))
       });
 
       const run = await this.repository.markRunSucceeded({
@@ -53,32 +40,110 @@ export class DefaultDailyIngestionService implements DailyIngestionService {
         candidatesCount
       });
 
-      const candidates = await this.repository.listCandidatesByRun(runRecord.id);
+      const persistedCandidates = await this.repository.listCandidatesByRun(runRecord.id);
 
       return {
         run,
-        candidates
+        candidates: persistedCandidates
       };
     } catch (error) {
-      const appError =
-        error instanceof AppError
-          ? error
-          : new AppError(
-              "INGESTION_RUN_FAILED",
-              error instanceof Error ? error.message : "Unknown ingestion error"
-            );
-
-      await this.repository.markRunFailed({
-        runId: runRecord.id,
-        errorMessage: appError.message
-      });
-
-      throw appError;
+      await this.handleRunFailure(runRecord.id, error);
+      throw error;
     }
   }
 
-  async getLatestRun(input?: { source?: "biorxiv" | "arxiv" | "pubmed" | "journal" }) {
+  async runAggregatedIngestion(input?: {
+    runDate?: string;
+    sources?: DailyCandidateSourceValue[];
+  }) {
+    const sources = input?.sources?.length ? input.sources : DEFAULT_SOURCES;
+    const window = resolveUtcDayWindow(input?.runDate);
+    const runRecord = await this.repository.createRun({
+      source: "aggregated",
+      runDate: window.runDate
+    });
+
+    const sourceSummaries: AggregatedSourceIngestionSummary[] = [];
+    const entries: Array<{ source: DailyCandidateSourceValue; candidate: DailySourceAdapterCandidate }> = [];
+
+    try {
+      for (const source of sources) {
+        const adapter = this.getAdapterOrThrow(source);
+        const candidates = await this.fetchValidCandidates(adapter, window);
+        sourceSummaries.push({
+          source,
+          candidatesCount: candidates.length
+        });
+
+        for (const candidate of candidates) {
+          entries.push({
+            source,
+            candidate
+          });
+        }
+      }
+
+      const candidatesCount = await this.repository.saveCandidates({
+        runId: runRecord.id,
+        entries
+      });
+
+      const run = await this.repository.markRunSucceeded({
+        runId: runRecord.id,
+        candidatesCount
+      });
+
+      const persistedCandidates = await this.repository.listCandidatesByRun(runRecord.id);
+
+      return {
+        run,
+        candidates: persistedCandidates,
+        sourceSummaries
+      };
+    } catch (error) {
+      await this.handleRunFailure(runRecord.id, error);
+      throw error;
+    }
+  }
+
+  async getLatestRun(input?: { source?: DailyCandidateSourceValue | "aggregated" }) {
     return this.repository.getLatestRun(input);
+  }
+
+  private getAdapterOrThrow(source: DailyCandidateSourceValue) {
+    const adapter = this.adapters.get(source);
+    if (!adapter) {
+      throw new AppError(
+        "INGESTION_ADAPTER_NOT_CONFIGURED",
+        `No adapter configured for source '${source}'`,
+        400
+      );
+    }
+    return adapter;
+  }
+
+  private async fetchValidCandidates(adapter: DailySourceAdapter, window: ReturnType<typeof resolveUtcDayWindow>) {
+    const fetched = await adapter.fetchCandidatesForDay(window);
+    const filtered = fetched
+      .map((candidate) => normalizeAdapterCandidate(candidate))
+      .filter((candidate) => isCandidateInUtcDay(candidate, window));
+
+    return filtered.filter((candidate) => candidate.externalId.length > 0);
+  }
+
+  private async handleRunFailure(runId: string, error: unknown) {
+    const appError =
+      error instanceof AppError
+        ? error
+        : new AppError(
+            "INGESTION_RUN_FAILED",
+            error instanceof Error ? error.message : "Unknown ingestion error"
+          );
+
+    await this.repository.markRunFailed({
+      runId,
+      errorMessage: appError.message
+    });
   }
 }
 

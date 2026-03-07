@@ -1,4 +1,4 @@
-﻿import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import { AppError } from "../../lib/errors";
 import { createAdapterMap, DefaultDailyIngestionService } from "./ingestion-foundation.service";
@@ -11,7 +11,7 @@ import type {
 class FakeRepository implements DailyIngestionRepository {
   private latestRun: {
     id: string;
-    source: "biorxiv" | "arxiv" | "pubmed" | "journal";
+    source: "biorxiv" | "arxiv" | "pubmed" | "journal" | "aggregated";
     status: "running" | "success" | "failed";
     runDate: string;
     startedAt: string;
@@ -27,7 +27,10 @@ class FakeRepository implements DailyIngestionRepository {
     authors: string[];
   }> = [];
 
-  async createRun(input: { source: "biorxiv" | "arxiv" | "pubmed" | "journal"; runDate: Date }) {
+  async createRun(input: {
+    source: "biorxiv" | "arxiv" | "pubmed" | "journal" | "aggregated";
+    runDate: Date;
+  }) {
     this.latestRun = {
       id: "run-1",
       source: input.source,
@@ -41,16 +44,18 @@ class FakeRepository implements DailyIngestionRepository {
 
   async saveCandidates(input: {
     runId: string;
-    source: "biorxiv" | "arxiv" | "pubmed" | "journal";
-    candidates: DailySourceAdapterCandidate[];
+    entries: Array<{
+      source: "biorxiv" | "arxiv" | "pubmed" | "journal";
+      candidate: DailySourceAdapterCandidate;
+    }>;
   }) {
-    this.candidates = input.candidates.map((candidate, index) => ({
+    this.candidates = input.entries.map((entry, index) => ({
       id: `c-${index + 1}`,
       runId: input.runId,
-      source: input.source,
-      externalId: candidate.externalId,
-      sourcePayload: candidate.sourcePayload,
-      authors: candidate.authors
+      source: entry.source,
+      externalId: entry.candidate.externalId,
+      sourcePayload: entry.candidate.sourcePayload,
+      authors: entry.candidate.authors
     }));
 
     return this.candidates.length;
@@ -136,5 +141,51 @@ describe("DefaultDailyIngestionService", () => {
     const service = new DefaultDailyIngestionService(createAdapterMap([]), new FakeRepository());
 
     await expect(service.runSourceIngestion({ source: "pubmed" })).rejects.toBeInstanceOf(AppError);
+  });
+
+  it("runs aggregated ingestion and preserves per-source provenance", async () => {
+    const adapters: DailySourceAdapter[] = [
+      {
+        source: "arxiv",
+        async fetchCandidatesForDay(window) {
+          return [
+            {
+              externalId: "ax-1",
+              publishedAt: new Date(window.dayStart.getTime() + 30 * 60 * 1000),
+              sourcePayload: { id: "ax-1" },
+              authors: ["Author A"]
+            }
+          ];
+        }
+      },
+      {
+        source: "pubmed",
+        async fetchCandidatesForDay(window) {
+          return [
+            {
+              externalId: "pm-1",
+              indexedAt: new Date(window.dayStart.getTime() + 45 * 60 * 1000),
+              sourcePayload: { id: "pm-1" },
+              authors: ["Author P"]
+            }
+          ];
+        }
+      }
+    ];
+
+    const service = new DefaultDailyIngestionService(createAdapterMap(adapters), new FakeRepository());
+    const result = await service.runAggregatedIngestion({
+      runDate: "2026-03-07T00:00:00.000Z",
+      sources: ["arxiv", "pubmed"]
+    });
+
+    expect(result.run.source).toBe("aggregated");
+    expect(result.run.status).toBe("success");
+    expect(result.run.candidatesCount).toBe(2);
+    expect(result.sourceSummaries).toEqual([
+      { source: "arxiv", candidatesCount: 1 },
+      { source: "pubmed", candidatesCount: 1 }
+    ]);
+    expect(result.candidates.map((candidate) => candidate.source)).toEqual(["arxiv", "pubmed"]);
   });
 });
