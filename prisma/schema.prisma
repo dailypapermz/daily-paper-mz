@@ -104,6 +104,13 @@ enum JournalEnrichmentStatus {
   FAILED
 }
 
+enum CandidateMergeReason {
+  DOI
+  TITLE_URL
+  TITLE
+  SOURCE_EXTERNAL_ID
+}
+
 model ZoteroSyncRun {
   id               String           @id @default(cuid())
   mode             ZoteroSyncMode
@@ -403,6 +410,7 @@ model DailyIngestionRun {
   createdAt      DateTime              @default(now())
   updatedAt      DateTime              @updatedAt
   candidates     DailyCandidate[]
+  canonicalCandidates DailyCanonicalCandidate[]
 
   @@index([source, runDate])
   @@index([status, startedAt])
@@ -430,6 +438,7 @@ model DailyCandidate {
   updatedAt        DateTime        @updatedAt
   run              DailyIngestionRun @relation(fields: [runId], references: [id], onDelete: Cascade)
   journalEnrichment DailyCandidateJournalEnrichment?
+  canonicalProvenance DailyCanonicalCandidateProvenance?
 
   @@unique([runId, source, externalId])
   @@index([runId])
@@ -439,6 +448,48 @@ model DailyCandidate {
   @@index([pmid])
   @@index([arxivId])
   @@index([bioRxivId])
+}
+
+model DailyCanonicalCandidate {
+  id                String                            @id @default(cuid())
+  runId             String
+  canonicalKey      String
+  title             String?
+  abstractNote      String?
+  publishedAt       DateTime?
+  indexedAt         DateTime?
+  url               String?
+  doi               String?
+  pmid              String?
+  arxivId           String?
+  bioRxivId         String?
+  journalName       String?
+  authorsJson       Json?
+  mergedSourceCount Int                               @default(1)
+  sourceProvenanceJson Json
+  createdAt         DateTime                          @default(now())
+  updatedAt         DateTime                          @updatedAt
+  run               DailyIngestionRun                @relation(fields: [runId], references: [id], onDelete: Cascade)
+  provenances       DailyCanonicalCandidateProvenance[]
+
+  @@unique([runId, canonicalKey])
+  @@index([runId])
+  @@index([doi])
+}
+
+model DailyCanonicalCandidateProvenance {
+  id                  String                @id @default(cuid())
+  canonicalCandidateId String
+  sourceCandidateId   String                @unique
+  source              CandidateSource
+  externalId          String
+  mergeReason         CandidateMergeReason
+  createdAt           DateTime              @default(now())
+  canonicalCandidate  DailyCanonicalCandidate @relation(fields: [canonicalCandidateId], references: [id], onDelete: Cascade)
+  sourceCandidate     DailyCandidate        @relation(fields: [sourceCandidateId], references: [id], onDelete: Cascade)
+
+  @@index([canonicalCandidateId])
+  @@index([source, mergeReason])
 }
 
 model JournalFeedSource {
