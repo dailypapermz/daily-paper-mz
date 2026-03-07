@@ -1,4 +1,4 @@
-﻿import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { JournalFeedSourceAdapter, parseFeedXml } from "./journal-feed-adapter";
 
@@ -34,23 +34,45 @@ describe("JournalFeedSourceAdapter", () => {
     expect(candidates[0].url).toBe("https://example.org/paper-1");
   });
 
-  it("fetches active feeds from repository and aggregates candidates", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({
+  it("continues ingestion when one feed request fails", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 500,
+        text: async () => ""
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 500,
+        text: async () => ""
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 500,
+        text: async () => ""
+      } as Response)
+      .mockResolvedValueOnce({
         ok: true,
         text: async () =>
           `<rss><channel><item><guid>x1</guid><title>T</title><pubDate>Sat, 07 Mar 2026 10:00:00 GMT</pubDate></item></channel></rss>`
-      } as Response) as unknown as typeof fetch
-    );
+      } as Response);
+
+    vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
 
     const adapter = new JournalFeedSourceAdapter({
       async listActiveFeeds() {
         return [
           {
             id: "feed-1",
-            journalName: "Journal A",
-            feedUrl: "https://example.org/a.xml",
+            journalName: "Broken Feed",
+            feedUrl: "https://example.org/broken.xml",
+            isActive: true
+          },
+          {
+            id: "feed-2",
+            journalName: "Working Feed",
+            feedUrl: "https://example.org/working.xml",
             isActive: true
           }
         ];
@@ -63,7 +85,8 @@ describe("JournalFeedSourceAdapter", () => {
       dayEnd: new Date()
     });
 
+    expect(fetchMock).toHaveBeenCalledTimes(4);
     expect(candidates).toHaveLength(1);
-    expect(candidates[0].sourcePayload.feedUrl).toBe("https://example.org/a.xml");
+    expect(candidates[0].sourcePayload.feedUrl).toBe("https://example.org/working.xml");
   });
 });

@@ -1,8 +1,11 @@
-﻿import { AppError } from "../../lib/errors";
+import { AppError } from "../../lib/errors";
+import { fetchWithRetry } from "./http";
 import type { DailySourceAdapter, DailySourceAdapterCandidate, UtcDayWindow } from "./types";
 
 const ARXIV_API_BASE = "https://export.arxiv.org/api/query";
-const MAX_RESULTS = 100;
+const ARXIV_PAGE_SIZE = 100;
+const ARXIV_MAX_PAGES = 5;
+const REQUEST_TIMEOUT_MS = 12000;
 
 type ArxivEntry = {
   id: string;
@@ -25,7 +28,7 @@ export class ArxivSourceAdapter implements DailySourceAdapter {
     this.categoryScopes = input.categoryScopes.map((scope) => scope.trim()).filter(Boolean);
   }
 
-  async fetchCandidatesForDay(window: UtcDayWindow): Promise<DailySourceAdapterCandidate[]> {
+  async fetchCandidatesForDay(_window: UtcDayWindow): Promise<DailySourceAdapterCandidate[]> {
     if (this.categoryScopes.length === 0) {
       throw new AppError(
         "ARXIV_SCOPE_REQUIRED",
@@ -37,13 +40,24 @@ export class ArxivSourceAdapter implements DailySourceAdapter {
     const byExternalId = new Map<string, DailySourceAdapterCandidate>();
 
     for (const scope of this.categoryScopes) {
-      const feed = await this.fetchFeedForCategory(scope);
-      const entries = parseArxivFeed(feed);
+      for (let page = 0; page < ARXIV_MAX_PAGES; page += 1) {
+        const start = page * ARXIV_PAGE_SIZE;
+        const feed = await this.fetchFeedForCategory(scope, start, ARXIV_PAGE_SIZE);
+        const entries = parseArxivFeed(feed);
 
-      for (const entry of entries) {
-        const candidate = mapArxivEntry(entry, scope);
-        if (!byExternalId.has(candidate.externalId)) {
-          byExternalId.set(candidate.externalId, candidate);
+        if (entries.length === 0) {
+          break;
+        }
+
+        for (const entry of entries) {
+          const candidate = mapArxivEntry(entry, scope);
+          if (!byExternalId.has(candidate.externalId)) {
+            byExternalId.set(candidate.externalId, candidate);
+          }
+        }
+
+        if (entries.length < ARXIV_PAGE_SIZE) {
+          break;
         }
       }
     }
@@ -51,20 +65,30 @@ export class ArxivSourceAdapter implements DailySourceAdapter {
     return Array.from(byExternalId.values());
   }
 
-  private async fetchFeedForCategory(category: string): Promise<string> {
-    const url = `${ARXIV_API_BASE}?search_query=cat:${encodeURIComponent(category)}&sortBy=submittedDate&sortOrder=descending&start=0&max_results=${MAX_RESULTS}`;
+  private async fetchFeedForCategory(category: string, start: number, maxResults: number): Promise<string> {
+    const url =
+      `${ARXIV_API_BASE}?search_query=cat:${encodeURIComponent(category)}` +
+      `&sortBy=submittedDate&sortOrder=descending&start=${start}&max_results=${maxResults}`;
 
-    const response = await fetch(url, {
-      headers: {
-        Accept: "application/atom+xml"
-      }
-    });
+    let response: Response;
+    try {
+      response = await fetchWithRetry(
+        url,
+        {
+          headers: {
+            Accept: "application/atom+xml"
+          }
+        },
+        {
+          timeoutMs: REQUEST_TIMEOUT_MS
+        }
+      );
+    } catch (error) {
+      throw new AppError("ARXIV_API_ERROR", error instanceof Error ? error.message : "arXiv request failed");
+    }
 
     if (!response.ok) {
-      throw new AppError(
-        "ARXIV_API_ERROR",
-        `arXiv API request failed with status ${response.status}`
-      );
+      throw new AppError("ARXIV_API_ERROR", `arXiv API request failed with status ${response.status}`);
     }
 
     return response.text();
@@ -82,7 +106,9 @@ function parseArxivFeed(xml: string): ArxivEntry[] {
     const updatedAt = toDate(extractTag(entry, "updated"));
     const doi = extractTag(entry, "arxiv:doi");
     const category = extractAttribute(entry, "arxiv:primary_category", "term");
-    const authors = extractAllTags(entry, "name").map((author) => normalizeWhitespace(author) ?? "").filter(Boolean);
+    const authors = extractAllTags(entry, "name")
+      .map((author) => normalizeWhitespace(author) ?? "")
+      .filter(Boolean);
 
     return {
       id,

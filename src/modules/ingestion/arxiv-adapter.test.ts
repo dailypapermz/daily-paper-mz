@@ -1,4 +1,4 @@
-﻿import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { AppError } from "../../lib/errors";
 import { ArxivSourceAdapter } from "./arxiv-adapter";
@@ -44,10 +44,40 @@ describe("ArxivSourceAdapter", () => {
       expect.stringContaining("search_query=cat:q-bio.GN"),
       expect.any(Object)
     );
+    expect(fetchMock.mock.calls[0]?.[0]).toContain("start=0");
     expect(records).toHaveLength(1);
     expect(records[0].arxivId).toBe("2603.12345v1");
     expect(records[0].doi).toBe("10.1000/test");
     expect(records[0].authors).toEqual(["Alice", "Bob"]);
+  });
+
+  it("supports pagination beyond the first page", async () => {
+    const firstPage = wrapFeed(buildEntries(100, 1000));
+    const secondPage = wrapFeed(buildEntries(1, 2000));
+
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        text: async () => firstPage
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        text: async () => secondPage
+      } as Response);
+
+    vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
+
+    const adapter = new ArxivSourceAdapter({ categoryScopes: ["q-bio.GN"] });
+    const records = await adapter.fetchCandidatesForDay({
+      runDate: new Date("2026-03-07T00:00:00Z"),
+      dayStart: new Date("2026-03-07T00:00:00Z"),
+      dayEnd: new Date("2026-03-07T23:59:59.999Z")
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[1]?.[0]).toContain("start=100");
+    expect(records).toHaveLength(101);
   });
 
   it("fails when category scopes are missing", async () => {
@@ -62,3 +92,31 @@ describe("ArxivSourceAdapter", () => {
     ).rejects.toBeInstanceOf(AppError);
   });
 });
+
+function buildEntries(count: number, seed: number): string {
+  const entries: string[] = [];
+
+  for (let index = 0; index < count; index += 1) {
+    const id = seed + index;
+    entries.push(`
+      <entry>
+        <id>http://arxiv.org/abs/2603.${id}v1</id>
+        <updated>2026-03-07T01:00:00Z</updated>
+        <published>2026-03-07T00:30:00Z</published>
+        <title>Paper ${id}</title>
+        <summary>Summary ${id}</summary>
+        <author><name>Author ${id}</name></author>
+        <arxiv:primary_category term="q-bio.GN" />
+      </entry>
+    `);
+  }
+
+  return entries.join("\n");
+}
+
+function wrapFeed(entries: string): string {
+  return `<?xml version="1.0" encoding="UTF-8"?>
+    <feed xmlns="http://www.w3.org/2005/Atom" xmlns:arxiv="http://arxiv.org/schemas/atom">
+      ${entries}
+    </feed>`;
+}

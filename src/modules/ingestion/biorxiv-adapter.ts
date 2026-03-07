@@ -1,9 +1,11 @@
-﻿import { AppError } from "../../lib/errors";
+import { AppError } from "../../lib/errors";
+import { fetchWithRetry } from "./http";
 import type { DailySourceAdapter, DailySourceAdapterCandidate, UtcDayWindow } from "./types";
 
 const DEFAULT_BIORXIV_API_BASE = "https://api.biorxiv.org";
 const PAGE_SIZE = 100;
 const MAX_PAGES = 50;
+const REQUEST_TIMEOUT_MS = 12000;
 
 type BioRxivApiResponse = {
   collection?: BioRxivApiRecord[];
@@ -49,11 +51,25 @@ export class BioRxivSourceAdapter implements DailySourceAdapter {
       const cursor = page * PAGE_SIZE;
       const url = `${this.baseUrl}/details/biorxiv/${fromDate}/${toDate}/${cursor}`;
 
-      const response = await fetch(url, {
-        headers: {
-          Accept: "application/json"
-        }
-      });
+      let response: Response;
+      try {
+        response = await fetchWithRetry(
+          url,
+          {
+            headers: {
+              Accept: "application/json"
+            }
+          },
+          {
+            timeoutMs: REQUEST_TIMEOUT_MS
+          }
+        );
+      } catch (error) {
+        throw new AppError(
+          "BIORXIV_API_ERROR",
+          error instanceof Error ? error.message : "bioRxiv request failed"
+        );
+      }
 
       if (!response.ok) {
         throw new AppError(

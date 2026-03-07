@@ -1,4 +1,6 @@
-﻿import { AppError } from "../../lib/errors";
+import { AppError } from "../../lib/errors";
+import { logger } from "../../lib/logging";
+import { fetchWithRetry } from "./http";
 import type {
   DailySourceAdapter,
   DailySourceAdapterCandidate,
@@ -6,6 +8,8 @@ import type {
   JournalFeedSourceRecord,
   UtcDayWindow
 } from "./types";
+
+const REQUEST_TIMEOUT_MS = 10000;
 
 export class JournalFeedSourceAdapter implements DailySourceAdapter {
   readonly source = "journal" as const;
@@ -17,24 +21,52 @@ export class JournalFeedSourceAdapter implements DailySourceAdapter {
     const records: DailySourceAdapterCandidate[] = [];
 
     for (const feed of feeds) {
-      const response = await fetch(feed.feedUrl, {
-        headers: {
-          Accept: "application/rss+xml, application/atom+xml, application/xml"
-        }
-      });
-
-      if (!response.ok) {
-        throw new AppError(
-          "JOURNAL_FEED_FETCH_FAILED",
-          `Journal feed fetch failed (${response.status}) for ${feed.feedUrl}`
-        );
+      try {
+        const response = await this.fetchFeed(feed);
+        const xml = await response.text();
+        records.push(...parseFeedXml(xml, feed));
+      } catch (error) {
+        logger.warn("Journal feed fetch failed; continuing remaining feeds", {
+          feedId: feed.id,
+          feedUrl: feed.feedUrl,
+          errorMessage: toErrorMessage(error)
+        });
       }
-
-      const xml = await response.text();
-      records.push(...parseFeedXml(xml, feed));
     }
 
     return records;
+  }
+
+  private async fetchFeed(feed: JournalFeedSourceRecord): Promise<Response> {
+    let response: Response;
+
+    try {
+      response = await fetchWithRetry(
+        feed.feedUrl,
+        {
+          headers: {
+            Accept: "application/rss+xml, application/atom+xml, application/xml"
+          }
+        },
+        {
+          timeoutMs: REQUEST_TIMEOUT_MS
+        }
+      );
+    } catch (error) {
+      throw new AppError(
+        "JOURNAL_FEED_FETCH_FAILED",
+        error instanceof Error ? error.message : `Journal feed request failed for ${feed.feedUrl}`
+      );
+    }
+
+    if (!response.ok) {
+      throw new AppError(
+        "JOURNAL_FEED_FETCH_FAILED",
+        `Journal feed fetch failed (${response.status}) for ${feed.feedUrl}`
+      );
+    }
+
+    return response;
   }
 }
 
@@ -144,4 +176,11 @@ function hashText(value: string): string {
   }
 
   return Math.abs(hash).toString(16);
+}
+
+function toErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return "Unknown error";
 }
