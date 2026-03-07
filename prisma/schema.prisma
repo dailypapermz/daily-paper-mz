@@ -133,6 +133,14 @@ enum RerankRunStatus {
   FAILED
 }
 
+enum FeedbackActionType {
+  SAVE
+  DISMISS
+  PROMOTE
+  LABEL_EDIT
+  SUMMARY_EDIT
+}
+
 model ZoteroSyncRun {
   id               String           @id @default(cuid())
   mode             ZoteroSyncMode
@@ -437,6 +445,7 @@ model DailyIngestionRun {
   canonicalCandidates DailyCanonicalCandidate[]
   recallRuns     DailyRecallRun[]
   rerankRuns     DailyRerankRun[]
+  feedbackLogs   CandidateFeedbackLog[]
 
   @@index([source, runDate])
   @@index([status, startedAt])
@@ -501,6 +510,7 @@ model DailyCanonicalCandidate {
   labels            DailyCandidateStructuredLabel[]
   recallResults     DailyRecallResult[]
   recommendationResults DailyRecommendationResult[]
+  feedbackLogs      CandidateFeedbackLog[]
 
   @@unique([runId, canonicalKey])
   @@index([runId])
@@ -651,6 +661,22 @@ model DailyRecommendationResult {
   @@unique([rerankRunId, canonicalCandidateId])
   @@index([rerankRunId, rank])
   @@index([selected, finalScore])
+}
+
+model CandidateFeedbackLog {
+  id                String            @id @default(cuid())
+  runId             String
+  candidateId       String
+  actionType        FeedbackActionType
+  oldValueJson      Json?
+  newValueJson      Json?
+  metadataJson      Json?
+  createdAt         DateTime          @default(now())
+  run               DailyIngestionRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  candidate         DailyCanonicalCandidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+
+  @@index([runId, createdAt])
+  @@index([candidateId, actionType, createdAt])
 }
 
 model JournalFeedSource {

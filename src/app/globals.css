@@ -183,6 +183,52 @@ main {
   flex-wrap: wrap;
 }
 
+.label-edit {
+  border-top: 1px solid #e2e9f0;
+  padding-top: 0.7rem;
+}
+
+.label-edit h3 {
+  margin: 0 0 0.5rem;
+  font-size: 0.82rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #4e5f66;
+}
+
+.edit-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.45rem;
+}
+
+.edit-grid label {
+  font-size: 0.8rem;
+  color: #42535a;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.edit-grid input,
+.edit-grid select {
+  border: 1px solid #c4d1de;
+  border-radius: 8px;
+  padding: 0.35rem 0.45rem;
+  background: #fff;
+  font-size: 0.82rem;
+}
+
+.label-edit button {
+  margin-top: 0.6rem;
+  border: 1px solid #acc0d2;
+  background: #f7fbff;
+  color: #1f4b73;
+  border-radius: 8px;
+  padding: 0.35rem 0.55rem;
+  cursor: pointer;
+}
+
 .reasons {
   font-size: 0.86rem;
   color: #384a51;
@@ -228,6 +274,10 @@ main {
   }
 
   .recommendation-list {
+    grid-template-columns: 1fr;
+  }
+
+  .edit-grid {
     grid-template-columns: 1fr;
   }
 }

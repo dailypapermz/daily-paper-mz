@@ -63,6 +63,11 @@ export class DefaultCandidateOutputService implements CandidateOutputService {
     return this.repository.listRunOutputs(runId);
   }
 
+  async getCandidateOutput(candidateId: string): Promise<CandidateOutputRecord | null> {
+    const [record] = await this.repository.listRunOutputsByCandidateId(candidateId);
+    return record ?? null;
+  }
+
   async updateCandidateOutput(input: {
     candidateId: string;
     summary?: CandidateSummaryFields;

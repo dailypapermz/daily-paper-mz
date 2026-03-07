@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { AppError } from "../../../../lib/errors";
+import { createFeedbackService } from "../../../../modules/feedback";
 import { createCandidateOutputService } from "../../../../modules/summary";
 import type { CandidateStructuredLabels, CandidateSummaryFields } from "../../../../modules/summary/types";
 
@@ -92,11 +93,40 @@ export async function PUT(request: Request) {
     }
 
     const service = createCandidateOutputService();
+    const before = await service.getCandidateOutput(candidateId);
     const updated = await service.updateCandidateOutput({
       candidateId,
       summary: body.summary,
       labels: body.labels
     });
+    const runId = updated?.runId ?? before?.runId;
+    if (runId && updated) {
+      const feedbackService = createFeedbackService();
+
+      if (body.summary !== undefined) {
+        await feedbackService.logSummaryEdit({
+          runId,
+          candidateId,
+          oldValue: before?.summary ? (before.summary as unknown as Record<string, unknown>) : undefined,
+          newValue: updated.summary ? (updated.summary as unknown as Record<string, unknown>) : undefined,
+          metadata: {
+            source: "candidate_content_put"
+          }
+        });
+      }
+
+      if (body.labels !== undefined) {
+        await feedbackService.logLabelEdit({
+          runId,
+          candidateId,
+          oldValue: before?.labels ? (before.labels as unknown as Record<string, unknown>) : undefined,
+          newValue: updated.labels ? (updated.labels as unknown as Record<string, unknown>) : undefined,
+          metadata: {
+            source: "candidate_content_put"
+          }
+        });
+      }
+    }
 
     return NextResponse.json({
       status: "ok",

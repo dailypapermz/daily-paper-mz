@@ -98,6 +98,7 @@ export interface CandidateOutputRepository {
 export interface CandidateOutputService {
   generateForRun(input: { runId: string; limit?: number }): Promise<CandidateOutputGenerationResult>;
   listRunOutputs(runId: string): Promise<CandidateOutputRecord[]>;
+  getCandidateOutput(candidateId: string): Promise<CandidateOutputRecord | null>;
   updateCandidateOutput(input: {
     candidateId: string;
     summary?: CandidateSummaryFields;

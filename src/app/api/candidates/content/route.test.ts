@@ -3,14 +3,25 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   listRunOutputs: vi.fn(),
   generateForRun: vi.fn(),
-  updateCandidateOutput: vi.fn()
+  updateCandidateOutput: vi.fn(),
+  getCandidateOutput: vi.fn(),
+  logSummaryEdit: vi.fn(),
+  logLabelEdit: vi.fn()
 }));
 
 vi.mock("../../../../modules/summary", () => ({
   createCandidateOutputService: () => ({
     listRunOutputs: mocks.listRunOutputs,
     generateForRun: mocks.generateForRun,
-    updateCandidateOutput: mocks.updateCandidateOutput
+    updateCandidateOutput: mocks.updateCandidateOutput,
+    getCandidateOutput: mocks.getCandidateOutput
+  })
+}));
+
+vi.mock("../../../../modules/feedback", () => ({
+  createFeedbackService: () => ({
+    logSummaryEdit: mocks.logSummaryEdit,
+    logLabelEdit: mocks.logLabelEdit
   })
 }));
 
@@ -21,6 +32,9 @@ describe("/api/candidates/content", () => {
     mocks.listRunOutputs.mockReset();
     mocks.generateForRun.mockReset();
     mocks.updateCandidateOutput.mockReset();
+    mocks.getCandidateOutput.mockReset();
+    mocks.logSummaryEdit.mockReset();
+    mocks.logLabelEdit.mockReset();
   });
 
   it("validates runId on GET", async () => {
@@ -65,6 +79,12 @@ describe("/api/candidates/content", () => {
   });
 
   it("updates candidate output on PUT", async () => {
+    mocks.getCandidateOutput.mockResolvedValueOnce({
+      candidateId: "candidate-1",
+      runId: "run-1",
+      canonicalKey: "key",
+      labels: {}
+    });
     mocks.updateCandidateOutput.mockResolvedValueOnce({
       candidateId: "candidate-1",
       runId: "run-1",
@@ -91,5 +111,6 @@ describe("/api/candidates/content", () => {
     const payload = (await response.json()) as { status: string };
     expect(response.status).toBe(200);
     expect(payload.status).toBe("ok");
+    expect(mocks.logSummaryEdit).toHaveBeenCalledTimes(1);
   });
 });
