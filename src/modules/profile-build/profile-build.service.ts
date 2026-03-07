@@ -1,7 +1,8 @@
-﻿import { AppError } from "../../lib/errors";
+import { AppError } from "../../lib/errors";
 import type {
   ProfileBuildService,
   ProfileEligibleItem,
+  ProfileFeedbackLogRecord,
   ProfileInterestSegmentValue,
   ProfileRepresentationSourceValue,
   ProfileSnapshotRepository
@@ -15,7 +16,14 @@ export class DefaultProfileBuildService implements ProfileBuildService {
   constructor(private readonly repository: ProfileSnapshotRepository) {}
 
   async buildSnapshot() {
-    const items = await this.repository.listEligibleItems();
+    const previousSnapshot = await this.repository.getActiveSnapshot();
+    const previousBuiltAt = previousSnapshot ? new Date(previousSnapshot.builtAt) : undefined;
+    const [items, feedbackLogs] = await Promise.all([
+      this.repository.listEligibleItems(),
+      this.repository.listFeedbackLogs({
+        since: previousBuiltAt
+      })
+    ]);
 
     if (items.length === 0) {
       throw new AppError(
@@ -86,6 +94,16 @@ export class DefaultProfileBuildService implements ProfileBuildService {
       researchPreferenceByCategory.set(item.researchCategory, existing);
     }
 
+    const feedbackSignals = extractFeedbackSignals(feedbackLogs);
+    for (const [category, count] of feedbackSignals.categoryBoostCounts.entries()) {
+      const existing = researchPreferenceByCategory.get(category) ?? {
+        totalWeight: 0,
+        itemCount: 0
+      };
+      existing.totalWeight += computeFeedbackBoost(count);
+      researchPreferenceByCategory.set(category, existing);
+    }
+
     const researchPreferences = Array.from(researchPreferenceByCategory.entries()).map(
       ([category, aggregate]) => ({
         category,
@@ -108,7 +126,14 @@ export class DefaultProfileBuildService implements ProfileBuildService {
       summaryJson: {
         itemsCount: snapshotItems.length,
         segmentCounts,
-        generatedAt: now.toISOString()
+        generatedAt: now.toISOString(),
+        feedbackIntegration: {
+          since: previousBuiltAt?.toISOString(),
+          logsConsumed: feedbackSignals.logsConsumed,
+          actionCounts: feedbackSignals.actionCounts,
+          categoryBoostCounts: Object.fromEntries(feedbackSignals.categoryBoostCounts),
+          keywordHints: feedbackSignals.keywordHints
+        }
       }
     });
   }
@@ -182,4 +207,86 @@ function buildRepresentationText(
   }
 
   return [item.title, item.abstractNote].filter(Boolean).join("\n\n") || item.zoteroItemKey;
+}
+
+function computeFeedbackBoost(count: number): number {
+  return Math.min(1, Math.max(0, count) * 0.2);
+}
+
+function extractFeedbackSignals(logs: ProfileFeedbackLogRecord[]) {
+  const categoryBoostCounts = new Map<"method" | "biology" | "resource" | "benchmark", number>();
+  const keywordCounts = new Map<string, number>();
+  const actionCounts: Record<string, number> = {
+    save: 0,
+    dismiss: 0,
+    promote: 0,
+    label_edit: 0,
+    summary_edit: 0
+  };
+
+  for (const log of logs) {
+    actionCounts[log.actionType] = (actionCounts[log.actionType] ?? 0) + 1;
+
+    if (log.actionType !== "label_edit") {
+      continue;
+    }
+
+    const newValue = toObject(log.newValue);
+    const contentRecall = toObject(newValue.contentRecall);
+    const researchType = toObject(newValue.researchType);
+
+    const category = toCategory(researchType.category);
+    if (category) {
+      categoryBoostCounts.set(category, (categoryBoostCounts.get(category) ?? 0) + 1);
+    }
+
+    const terms = [
+      toStringValue(contentRecall.label),
+      toStringValue(researchType.primaryKeyword),
+      toStringValue(researchType.secondaryKeyword)
+    ].filter((term): term is string => Boolean(term));
+
+    for (const term of terms) {
+      const normalized = term.toLowerCase().trim();
+      if (!normalized) {
+        continue;
+      }
+      keywordCounts.set(normalized, (keywordCounts.get(normalized) ?? 0) + 1);
+    }
+  }
+
+  const keywordHints = [...keywordCounts.entries()]
+    .sort((left, right) => right[1] - left[1])
+    .slice(0, 20)
+    .map(([keyword, count]) => ({ keyword, count }));
+
+  return {
+    logsConsumed: logs.length,
+    actionCounts,
+    categoryBoostCounts,
+    keywordHints
+  };
+}
+
+function toObject(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+  return value as Record<string, unknown>;
+}
+
+function toStringValue(value: unknown): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function toCategory(value: unknown): "method" | "biology" | "resource" | "benchmark" | undefined {
+  if (value === "method" || value === "biology" || value === "resource" || value === "benchmark") {
+    return value;
+  }
+  return undefined;
 }

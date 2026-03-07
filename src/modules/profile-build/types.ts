@@ -52,6 +52,17 @@ export type ProfileSnapshotSummary = {
   }>;
 };
 
+export type ProfileFeedbackLogRecord = {
+  id: string;
+  runId: string;
+  candidateId: string;
+  actionType: "save" | "dismiss" | "promote" | "label_edit" | "summary_edit";
+  oldValue?: Record<string, unknown>;
+  newValue?: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
+  createdAt: string;
+};
+
 export type ProfileRefreshTriggerValue = "initial" | "manual" | "scheduled";
 export type ProfileRefreshJobStatusValue = "running" | "success" | "failed";
 
@@ -74,6 +85,7 @@ export type ProfileReminderCheckSummary = {
 
 export interface ProfileSnapshotRepository {
   listEligibleItems(): Promise<ProfileEligibleItem[]>;
+  listFeedbackLogs(input?: { since?: Date; limit?: number }): Promise<ProfileFeedbackLogRecord[]>;
   saveActiveSnapshot(input: {
     sourceLibraryVersion?: number;
     items: ProfileSnapshotItemInput[];

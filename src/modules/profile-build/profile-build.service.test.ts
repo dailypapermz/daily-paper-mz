@@ -7,11 +7,20 @@ import type { ProfileSnapshotRepository } from "./types";
 class FakeProfileSnapshotRepository implements ProfileSnapshotRepository {
   constructor(
     private readonly items: Awaited<ReturnType<ProfileSnapshotRepository["listEligibleItems"]>>,
-    private readonly active: Awaited<ReturnType<ProfileSnapshotRepository["getActiveSnapshot"]>> = null
+    private readonly active: Awaited<ReturnType<ProfileSnapshotRepository["getActiveSnapshot"]>> = null,
+    private readonly feedbackLogs: Awaited<ReturnType<ProfileSnapshotRepository["listFeedbackLogs"]>> = []
   ) {}
 
   async listEligibleItems() {
     return this.items;
+  }
+
+  async listFeedbackLogs(input?: { since?: Date; limit?: number }) {
+    const filtered = input?.since
+      ? this.feedbackLogs.filter((log) => new Date(log.createdAt).getTime() > input.since!.getTime())
+      : this.feedbackLogs;
+
+    return filtered.slice(0, input?.limit ?? 500);
   }
 
   async saveActiveSnapshot(input: {
@@ -100,5 +109,46 @@ describe("DefaultProfileBuildService", () => {
     const service = new DefaultProfileBuildService(repo);
 
     await expect(service.buildSnapshot()).rejects.toBeInstanceOf(AppError);
+  });
+
+  it("conservatively incorporates feedback logs during refresh-time build", async () => {
+    const repo = new FakeProfileSnapshotRepository(
+      [
+        {
+          itemId: "item-1",
+          zoteroItemKey: "A",
+          title: "Title A",
+          abstractNote: "Abstract A",
+          dateAdded: new Date(),
+          libraryVersion: 12,
+          collectionPriorities: ["primary"],
+          attentionLevel: 1,
+          contentRecallLabels: ["single-cell trajectory inference"],
+          researchCategories: ["method"],
+          researchKeywords: ["foundation model"]
+        }
+      ],
+      null,
+      [
+        {
+          id: "log-1",
+          runId: "run-1",
+          candidateId: "candidate-1",
+          actionType: "label_edit",
+          newValue: {
+            researchType: {
+              category: "biology",
+              primaryKeyword: "chromatin"
+            }
+          },
+          createdAt: new Date().toISOString()
+        }
+      ]
+    );
+
+    const service = new DefaultProfileBuildService(repo);
+    const snapshot = await service.buildSnapshot();
+
+    expect(snapshot.researchTypePreferences.some((entry) => entry.category === "biology")).toBe(true);
   });
 });

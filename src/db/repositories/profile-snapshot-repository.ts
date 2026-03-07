@@ -121,6 +121,31 @@ export class PrismaProfileSnapshotRepository implements ProfileSnapshotRepositor
     });
   }
 
+  async listFeedbackLogs(input?: { since?: Date; limit?: number }) {
+    const rows = await this.db.candidateFeedbackLog.findMany({
+      where: input?.since
+        ? {
+            createdAt: {
+              gt: input.since
+            }
+          }
+        : undefined,
+      orderBy: [{ createdAt: "asc" }],
+      take: input?.limit ?? 500
+    });
+
+    return rows.map((row) => ({
+      id: row.id,
+      runId: row.runId,
+      candidateId: row.candidateId,
+      actionType: fromDbFeedbackAction(row.actionType),
+      oldValue: toObject(row.oldValueJson),
+      newValue: toObject(row.newValueJson),
+      metadata: toObject(row.metadataJson),
+      createdAt: toIsoDate(row.createdAt)
+    }));
+  }
+
   async saveActiveSnapshot(input: {
     sourceLibraryVersion?: number;
     items: Array<{
@@ -252,6 +277,32 @@ function fromDbResearchCategory(value: "METHOD" | "BIOLOGY" | "RESOURCE" | "BENC
     return "resource";
   }
   return "benchmark";
+}
+
+function fromDbFeedbackAction(
+  value: "SAVE" | "DISMISS" | "PROMOTE" | "LABEL_EDIT" | "SUMMARY_EDIT"
+): "save" | "dismiss" | "promote" | "label_edit" | "summary_edit" {
+  if (value === "SAVE") {
+    return "save";
+  }
+  if (value === "DISMISS") {
+    return "dismiss";
+  }
+  if (value === "PROMOTE") {
+    return "promote";
+  }
+  if (value === "LABEL_EDIT") {
+    return "label_edit";
+  }
+  return "summary_edit";
+}
+
+function toObject(value: Prisma.JsonValue | null): Record<string, unknown> | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+
+  return value as Record<string, unknown>;
 }
 
 function mapSnapshotSummary(snapshot: {
