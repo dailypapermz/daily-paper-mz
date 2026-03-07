@@ -1,0 +1,177 @@
+﻿import { AppError } from "../../lib/errors";
+import type { DailySourceAdapter, DailySourceAdapterCandidate, UtcDayWindow } from "./types";
+
+const ARXIV_API_BASE = "https://export.arxiv.org/api/query";
+const MAX_RESULTS = 100;
+
+type ArxivEntry = {
+  id: string;
+  title?: string;
+  summary?: string;
+  publishedAt?: Date;
+  updatedAt?: Date;
+  doi?: string;
+  category?: string;
+  authors: string[];
+  rawEntry: string;
+};
+
+export class ArxivSourceAdapter implements DailySourceAdapter {
+  readonly source = "arxiv" as const;
+
+  private readonly categoryScopes: string[];
+
+  constructor(input: { categoryScopes: string[] }) {
+    this.categoryScopes = input.categoryScopes.map((scope) => scope.trim()).filter(Boolean);
+  }
+
+  async fetchCandidatesForDay(window: UtcDayWindow): Promise<DailySourceAdapterCandidate[]> {
+    if (this.categoryScopes.length === 0) {
+      throw new AppError(
+        "ARXIV_SCOPE_REQUIRED",
+        "arXiv ingestion requires at least one configured category scope",
+        400
+      );
+    }
+
+    const byExternalId = new Map<string, DailySourceAdapterCandidate>();
+
+    for (const scope of this.categoryScopes) {
+      const feed = await this.fetchFeedForCategory(scope);
+      const entries = parseArxivFeed(feed);
+
+      for (const entry of entries) {
+        const candidate = mapArxivEntry(entry, scope);
+        if (!byExternalId.has(candidate.externalId)) {
+          byExternalId.set(candidate.externalId, candidate);
+        }
+      }
+    }
+
+    return Array.from(byExternalId.values());
+  }
+
+  private async fetchFeedForCategory(category: string): Promise<string> {
+    const url = `${ARXIV_API_BASE}?search_query=cat:${encodeURIComponent(category)}&sortBy=submittedDate&sortOrder=descending&start=0&max_results=${MAX_RESULTS}`;
+
+    const response = await fetch(url, {
+      headers: {
+        Accept: "application/atom+xml"
+      }
+    });
+
+    if (!response.ok) {
+      throw new AppError(
+        "ARXIV_API_ERROR",
+        `arXiv API request failed with status ${response.status}`
+      );
+    }
+
+    return response.text();
+  }
+}
+
+function parseArxivFeed(xml: string): ArxivEntry[] {
+  const entries = xml.match(/<entry>[\s\S]*?<\/entry>/g) ?? [];
+
+  return entries.map((entry) => {
+    const id = extractTag(entry, "id") ?? "";
+    const title = normalizeWhitespace(extractTag(entry, "title"));
+    const summary = normalizeWhitespace(extractTag(entry, "summary"));
+    const publishedAt = toDate(extractTag(entry, "published"));
+    const updatedAt = toDate(extractTag(entry, "updated"));
+    const doi = extractTag(entry, "arxiv:doi");
+    const category = extractAttribute(entry, "arxiv:primary_category", "term");
+    const authors = extractAllTags(entry, "name").map((author) => normalizeWhitespace(author) ?? "").filter(Boolean);
+
+    return {
+      id,
+      title,
+      summary,
+      publishedAt,
+      updatedAt,
+      doi: sanitizeString(doi),
+      category: sanitizeString(category),
+      authors,
+      rawEntry: entry
+    };
+  });
+}
+
+function mapArxivEntry(entry: ArxivEntry, requestedCategory: string): DailySourceAdapterCandidate {
+  const arxivId = parseArxivId(entry.id);
+
+  return {
+    externalId: arxivId,
+    title: entry.title,
+    abstractNote: entry.summary,
+    publishedAt: entry.publishedAt,
+    indexedAt: entry.updatedAt,
+    url: entry.id,
+    doi: entry.doi,
+    arxivId,
+    journalName: undefined,
+    authors: entry.authors,
+    sourcePayload: {
+      requestedCategory,
+      category: entry.category,
+      rawEntry: entry.rawEntry
+    }
+  };
+}
+
+function extractTag(xml: string, tag: string): string | undefined {
+  const regex = new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, "i");
+  const match = xml.match(regex);
+  return match?.[1];
+}
+
+function extractAllTags(xml: string, tag: string): string[] {
+  const regex = new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, "gi");
+  const values: string[] = [];
+
+  for (const match of xml.matchAll(regex)) {
+    if (match[1]) {
+      values.push(match[1]);
+    }
+  }
+
+  return values;
+}
+
+function extractAttribute(xml: string, tag: string, attribute: string): string | undefined {
+  const regex = new RegExp(`<${tag}[^>]*${attribute}="([^"]+)"[^>]*/?>`, "i");
+  const match = xml.match(regex);
+  return match?.[1];
+}
+
+function parseArxivId(idUrl: string): string {
+  const trimmed = idUrl.trim();
+  const parts = trimmed.split("/");
+  return parts[parts.length - 1] || trimmed;
+}
+
+function toDate(value: string | undefined): Date | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? undefined : parsed;
+}
+
+function normalizeWhitespace(value: string | undefined): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  return value.replace(/\s+/g, " ").trim() || undefined;
+}
+
+function sanitizeString(value: string | undefined): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+  const normalized = value.trim();
+  return normalized.length > 0 ? normalized : undefined;
+}
