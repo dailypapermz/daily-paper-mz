@@ -121,6 +121,12 @@ enum CandidateLabelType {
   RESEARCH_TYPE
 }
 
+enum RecallRunStatus {
+  RUNNING
+  SUCCESS
+  FAILED
+}
+
 model ZoteroSyncRun {
   id               String           @id @default(cuid())
   mode             ZoteroSyncMode
@@ -342,6 +348,7 @@ model ProfileSnapshot {
   itemSignals              ProfileSnapshotItemSignal[]
   researchTypePreferences  ProfileSnapshotResearchTypePreference[]
   refreshJobs              ProfileRefreshJob[]
+  recallRuns               DailyRecallRun[]
 
   @@index([status, builtAt])
 }
@@ -421,6 +428,7 @@ model DailyIngestionRun {
   updatedAt      DateTime              @updatedAt
   candidates     DailyCandidate[]
   canonicalCandidates DailyCanonicalCandidate[]
+  recallRuns     DailyRecallRun[]
 
   @@index([source, runDate])
   @@index([status, startedAt])
@@ -483,6 +491,7 @@ model DailyCanonicalCandidate {
   provenances       DailyCanonicalCandidateProvenance[]
   summary           DailyCandidateSummary?
   labels            DailyCandidateStructuredLabel[]
+  recallResults     DailyRecallResult[]
 
   @@unique([runId, canonicalKey])
   @@index([runId])
@@ -538,6 +547,48 @@ model DailyCandidateStructuredLabel {
   @@unique([canonicalCandidateId, labelType])
   @@index([canonicalCandidateId])
   @@index([provenance, labelType])
+}
+
+model DailyRecallRun {
+  id               String           @id @default(cuid())
+  runId            String
+  profileSnapshotId String
+  status           RecallRunStatus  @default(RUNNING)
+  startedAt        DateTime         @default(now())
+  finishedAt       DateTime?
+  requestedTopN    Int
+  candidateCount   Int              @default(0)
+  recalledCount    Int              @default(0)
+  errorMessage     String?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  run              DailyIngestionRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  profileSnapshot  ProfileSnapshot   @relation(fields: [profileSnapshotId], references: [id], onDelete: Cascade)
+  results          DailyRecallResult[]
+
+  @@index([runId, startedAt])
+  @@index([status, startedAt])
+}
+
+model DailyRecallResult {
+  id                 String               @id @default(cuid())
+  recallRunId        String
+  canonicalCandidateId String
+  rank               Int
+  selected           Boolean              @default(true)
+  recallScore        Float
+  semanticScore      Float
+  tagOverlapScore    Float
+  researchTypeScore  Float
+  sourceScopeScore   Float
+  reasonsJson        Json
+  createdAt          DateTime             @default(now())
+  recallRun          DailyRecallRun       @relation(fields: [recallRunId], references: [id], onDelete: Cascade)
+  canonicalCandidate DailyCanonicalCandidate @relation(fields: [canonicalCandidateId], references: [id], onDelete: Cascade)
+
+  @@unique([recallRunId, canonicalCandidateId])
+  @@index([recallRunId, rank])
+  @@index([selected, recallScore])
 }
 
 model JournalFeedSource {
