@@ -433,3 +433,15 @@ model DailyCandidate {
   @@index([arxivId])
   @@index([bioRxivId])
 }
+
+model JournalFeedSource {
+  id          String   @id @default(cuid())
+  journalName String
+  feedUrl     String   @unique
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([journalName])
+  @@index([isActive])
+}

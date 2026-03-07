@@ -47,6 +47,13 @@ export type DailyIngestionRunSummary = {
   errorMessage?: string;
 };
 
+export type JournalFeedSourceRecord = {
+  id: string;
+  journalName: string;
+  feedUrl: string;
+  isActive: boolean;
+};
+
 export type UtcDayWindow = {
   runDate: Date;
   dayStart: Date;
@@ -56,6 +63,10 @@ export type UtcDayWindow = {
 export interface DailySourceAdapter {
   readonly source: DailyCandidateSourceValue;
   fetchCandidatesForDay(input: UtcDayWindow): Promise<DailySourceAdapterCandidate[]>;
+}
+
+export interface JournalFeedRepository {
+  listActiveFeeds(): Promise<JournalFeedSourceRecord[]>;
 }
 
 export interface DailyIngestionRepository {
