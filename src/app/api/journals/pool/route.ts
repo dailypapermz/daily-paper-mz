@@ -13,6 +13,11 @@ type ImportJournalPoolBody = {
   feeds?: JournalFeedInput[];
 };
 
+type UpdateJournalPoolBody = {
+  id?: string;
+  isActive?: boolean;
+};
+
 export async function GET() {
   const repository = new PrismaJournalFeedRepository(prisma);
   const feeds = await repository.listFeeds();
@@ -20,6 +25,45 @@ export async function GET() {
   return NextResponse.json({
     status: "ok",
     feeds
+  });
+}
+
+export async function PUT(request: Request) {
+  const body = (await request.json().catch(() => ({}))) as UpdateJournalPoolBody;
+  const id = body.id?.trim();
+
+  if (!id || typeof body.isActive !== "boolean") {
+    return NextResponse.json(
+      {
+        status: "error",
+        code: "INVALID_PAYLOAD",
+        message: "id and isActive(boolean) are required"
+      },
+      { status: 400 }
+    );
+  }
+
+  const repository = new PrismaJournalFeedRepository(prisma);
+  const existing = await repository.getFeedById(id);
+  if (!existing) {
+    return NextResponse.json(
+      {
+        status: "error",
+        code: "FEED_NOT_FOUND",
+        message: `journal feed '${id}' does not exist`
+      },
+      { status: 404 }
+    );
+  }
+
+  const feed = await repository.updateFeedActive({
+    id,
+    isActive: body.isActive
+  });
+
+  return NextResponse.json({
+    status: "ok",
+    feed
   });
 }
 

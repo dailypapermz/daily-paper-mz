@@ -76,6 +76,13 @@ main {
   background: #fff;
 }
 
+.controls input {
+  padding: 0.35rem 0.55rem;
+  border-radius: 8px;
+  border: 1px solid #bdcbd8;
+  background: #fff;
+}
+
 .run-meta {
   margin-top: 1rem;
   display: flex;

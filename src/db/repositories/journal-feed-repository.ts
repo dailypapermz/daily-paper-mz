@@ -44,6 +44,41 @@ export class PrismaJournalFeedRepository {
     }));
   }
 
+  async getFeedById(id: string): Promise<JournalFeedSourceRecord | null> {
+    const row = await this.db.journalFeedSource.findUnique({
+      where: { id }
+    });
+
+    if (!row) {
+      return null;
+    }
+
+    return {
+      id: row.id,
+      journalName: row.journalName,
+      feedUrl: row.feedUrl,
+      isActive: row.isActive
+    };
+  }
+
+  async updateFeedActive(input: { id: string; isActive: boolean }): Promise<JournalFeedSourceRecord> {
+    const row = await this.db.journalFeedSource.update({
+      where: {
+        id: input.id
+      },
+      data: {
+        isActive: input.isActive
+      }
+    });
+
+    return {
+      id: row.id,
+      journalName: row.journalName,
+      feedUrl: row.feedUrl,
+      isActive: row.isActive
+    };
+  }
+
   async listActiveFeeds(): Promise<JournalFeedSourceRecord[]> {
     const rows = await this.db.journalFeedSource.findMany({
       where: {

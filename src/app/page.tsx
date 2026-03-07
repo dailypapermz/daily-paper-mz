@@ -215,6 +215,7 @@ export default function HomePage() {
         </div>
         <div className="header-links">
           <a href="/collections">Collection Priorities</a>
+          <a href="/journals">Journal Pool</a>
           <a href="/api/recommendations/daily">Feed API</a>
         </div>
       </header>
