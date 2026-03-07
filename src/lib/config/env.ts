@@ -16,6 +16,7 @@ export type AppEnv = {
   LLM_API_BASE_URL?: string;
   EASYSCHOLAR_API_KEY?: string;
   EASYSCHOLAR_API_URL?: string;
+  JOURNAL_ENRICHMENT_CACHE_TTL_HOURS: number;
   ARXIV_CATEGORY_SCOPES: string[];
   BIORXIV_SUBJECT_SCOPES: string[];
   PUBMED_QUERY_SCOPE?: string;
@@ -32,6 +33,19 @@ function parseList(value: string | undefined): string[] {
     .split(",")
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+function parsePositiveInteger(value: string | undefined, fallback: number): number {
+  if (!value) {
+    return fallback;
+  }
+
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return fallback;
+  }
+
+  return parsed;
 }
 
 export function loadEnv(rawEnv: NodeJS.ProcessEnv = process.env): AppEnv {
@@ -53,6 +67,10 @@ export function loadEnv(rawEnv: NodeJS.ProcessEnv = process.env): AppEnv {
     LLM_API_BASE_URL: rawEnv.LLM_API_BASE_URL,
     EASYSCHOLAR_API_KEY: rawEnv.EASYSCHOLAR_API_KEY,
     EASYSCHOLAR_API_URL: rawEnv.EASYSCHOLAR_API_URL,
+    JOURNAL_ENRICHMENT_CACHE_TTL_HOURS: parsePositiveInteger(
+      rawEnv.JOURNAL_ENRICHMENT_CACHE_TTL_HOURS,
+      24 * 30
+    ),
     ARXIV_CATEGORY_SCOPES: parseList(rawEnv.ARXIV_CATEGORY_SCOPES),
     BIORXIV_SUBJECT_SCOPES: parseList(rawEnv.BIORXIV_SUBJECT_SCOPES),
     PUBMED_QUERY_SCOPE: rawEnv.PUBMED_QUERY_SCOPE,

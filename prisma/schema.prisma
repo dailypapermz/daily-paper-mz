@@ -98,6 +98,12 @@ enum DailyIngestionRunStatus {
   FAILED
 }
 
+enum JournalEnrichmentStatus {
+  ENRICHED
+  NOT_FOUND
+  FAILED
+}
+
 model ZoteroSyncRun {
   id               String           @id @default(cuid())
   mode             ZoteroSyncMode
@@ -423,6 +429,7 @@ model DailyCandidate {
   createdAt        DateTime        @default(now())
   updatedAt        DateTime        @updatedAt
   run              DailyIngestionRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  journalEnrichment DailyCandidateJournalEnrichment?
 
   @@unique([runId, source, externalId])
   @@index([runId])
@@ -444,4 +451,40 @@ model JournalFeedSource {
 
   @@index([journalName])
   @@index([isActive])
+}
+
+model JournalEnrichmentCache {
+  id             String   @id @default(cuid())
+  journalName    String
+  provider       String
+  quartile       String?
+  impactScore    Float?
+  rawPayloadJson Json?
+  normalizedJson Json?
+  fetchedAt      DateTime @default(now())
+  expiresAt      DateTime
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([journalName, provider])
+  @@index([provider, expiresAt])
+}
+
+model DailyCandidateJournalEnrichment {
+  id              String                 @id @default(cuid())
+  candidateId     String                 @unique
+  provider        String
+  status          JournalEnrichmentStatus
+  quartile        String?
+  impactScore     Float?
+  rawPayloadJson  Json?
+  normalizedJson  Json?
+  errorMessage    String?
+  enrichedAt      DateTime               @default(now())
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
+  candidate       DailyCandidate         @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+
+  @@index([provider, status])
+  @@index([enrichedAt])
 }

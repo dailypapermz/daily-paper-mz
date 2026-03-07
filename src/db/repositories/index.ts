@@ -9,3 +9,4 @@ export { PrismaProfileSnapshotRepository } from "./profile-snapshot-repository";
 export { PrismaProfileRefreshRepository } from "./profile-refresh-repository";
 export { PrismaDailyIngestionRepository } from "./daily-ingestion-repository";
 export { PrismaJournalFeedRepository } from "./journal-feed-repository";
+export { PrismaJournalEnrichmentRepository } from "./journal-enrichment-repository";
