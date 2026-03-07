@@ -52,6 +52,26 @@ export type ProfileSnapshotSummary = {
   }>;
 };
 
+export type ProfileRefreshTriggerValue = "initial" | "manual" | "scheduled";
+export type ProfileRefreshJobStatusValue = "running" | "success" | "failed";
+
+export type ProfileRefreshJobSummary = {
+  id: string;
+  trigger: ProfileRefreshTriggerValue;
+  status: ProfileRefreshJobStatusValue;
+  startedAt: string;
+  finishedAt?: string;
+  snapshotId?: string;
+  errorMessage?: string;
+};
+
+export type ProfileReminderCheckSummary = {
+  id: string;
+  checkedAt: string;
+  lastRefreshAt?: string;
+  isDue: boolean;
+};
+
 export interface ProfileSnapshotRepository {
   listEligibleItems(): Promise<ProfileEligibleItem[]>;
   saveActiveSnapshot(input: {
@@ -66,4 +86,32 @@ export interface ProfileSnapshotRepository {
 export interface ProfileBuildService {
   buildSnapshot(): Promise<ProfileSnapshotSummary>;
   getActiveSnapshot(): Promise<ProfileSnapshotSummary | null>;
+}
+
+export interface ProfileRefreshRepository {
+  createRefreshJob(input: { trigger: ProfileRefreshTriggerValue }): Promise<{ id: string }>;
+  markRefreshJobSucceeded(input: {
+    jobId: string;
+    snapshotId: string;
+  }): Promise<ProfileRefreshJobSummary>;
+  markRefreshJobFailed(input: {
+    jobId: string;
+    errorMessage: string;
+  }): Promise<ProfileRefreshJobSummary>;
+  getLatestRefreshJob(): Promise<ProfileRefreshJobSummary | null>;
+  recordReminderCheck(input: {
+    isDue: boolean;
+    lastRefreshAt?: Date;
+  }): Promise<ProfileReminderCheckSummary>;
+  getLatestReminderCheck(): Promise<ProfileReminderCheckSummary | null>;
+}
+
+export interface ProfileRefreshService {
+  runManualRefresh(): Promise<{ job: ProfileRefreshJobSummary; snapshot: ProfileSnapshotSummary }>;
+  getRefreshStatus(): Promise<{
+    latestJob: ProfileRefreshJobSummary | null;
+    activeSnapshot: ProfileSnapshotSummary | null;
+    latestReminder: ProfileReminderCheckSummary | null;
+  }>;
+  runMonthlyReminderCheck(now?: Date): Promise<ProfileReminderCheckSummary>;
 }

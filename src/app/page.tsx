@@ -9,6 +9,15 @@ export default function HomePage() {
       <p>
         Collection priorities: <a href="/collections">/collections</a>
       </p>
+      <form method="post" action="/api/profile/refresh">
+        <button type="submit">Run Manual Profile Refresh</button>
+      </form>
+      <p>
+        Refresh status endpoint: <code>/api/profile/refresh</code>
+      </p>
+      <p>
+        Monthly reminder check endpoint: <code>/api/profile/reminder</code>
+      </p>
     </main>
   );
 }

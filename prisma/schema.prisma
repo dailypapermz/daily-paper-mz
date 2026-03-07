@@ -73,6 +73,18 @@ enum ProfileRepresentationSource {
   TITLE_ABSTRACT
 }
 
+enum ProfileRefreshTrigger {
+  INITIAL
+  MANUAL
+  SCHEDULED
+}
+
+enum ProfileRefreshJobStatus {
+  RUNNING
+  SUCCESS
+  FAILED
+}
+
 model ZoteroSyncRun {
   id               String           @id @default(cuid())
   mode             ZoteroSyncMode
@@ -293,6 +305,7 @@ model ProfileSnapshot {
   updatedAt                DateTime                               @updatedAt
   itemSignals              ProfileSnapshotItemSignal[]
   researchTypePreferences  ProfileSnapshotResearchTypePreference[]
+  refreshJobs              ProfileRefreshJob[]
 
   @@index([status, builtAt])
 }
@@ -330,4 +343,31 @@ model ProfileSnapshotResearchTypePreference {
 
   @@unique([snapshotId, category])
   @@index([snapshotId])
+}
+
+model ProfileRefreshJob {
+  id          String                 @id @default(cuid())
+  trigger     ProfileRefreshTrigger
+  status      ProfileRefreshJobStatus @default(RUNNING)
+  startedAt   DateTime               @default(now())
+  finishedAt  DateTime?
+  snapshotId  String?
+  errorMessage String?
+  createdAt   DateTime               @default(now())
+  updatedAt   DateTime               @updatedAt
+  snapshot    ProfileSnapshot?       @relation(fields: [snapshotId], references: [id], onDelete: SetNull)
+
+  @@index([status, startedAt])
+  @@index([trigger, startedAt])
+}
+
+model ProfileReminderCheck {
+  id            String   @id @default(cuid())
+  checkedAt     DateTime @default(now())
+  lastRefreshAt DateTime?
+  isDue         Boolean
+  createdAt     DateTime @default(now())
+
+  @@index([checkedAt])
+  @@index([isDue, checkedAt])
 }
