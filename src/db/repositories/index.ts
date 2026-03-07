@@ -14,3 +14,4 @@ export { PrismaCandidateNormalizationRepository } from "./candidate-normalizatio
 export { PrismaCandidateOutputRepository } from "./candidate-output-repository";
 export { PrismaRecallRankingRepository } from "./recall-ranking-repository";
 export { PrismaRerankRepository } from "./rerank-repository";
+export { PrismaDailyRecommendationRepository } from "./daily-recommendations-repository";
