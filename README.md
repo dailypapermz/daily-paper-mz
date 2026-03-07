@@ -34,3 +34,27 @@ Feature/business modules are implemented issue by issue.
 - `src/lib`: shared config/types/logging/utilities
 - `src/jobs`: scheduler/job placeholders
 - `prisma/schema.prisma`: initial Prisma setup
+
+## Scheduled Job Examples (DAI-42)
+The app includes simple runnable scheduler examples without extra infrastructure.
+
+### API job triggers
+- `POST /api/jobs/daily`
+  - Runs source ingestion, enrichment, deduplication, summary generation, recall, and rerank for configured sources.
+- `POST /api/jobs/monthly-reminder`
+  - Runs monthly profile refresh reminder check.
+
+### CLI examples
+- Run daily job once:
+  - `npm run job:daily`
+- Run monthly reminder once:
+  - `npm run job:monthly-reminder`
+- Run loop scheduler (checks UTC clock periodically):
+  - `npm run job:scheduler-loop`
+
+### Scheduler env knobs
+- `APP_BASE_URL` (default `http://localhost:3000`)
+- `SCHEDULER_DAILY_UTC_HOUR` (default `6`)
+- `SCHEDULER_MONTHLY_UTC_DAY` (default `1`)
+- `SCHEDULER_MONTHLY_UTC_HOUR` (default `7`)
+- `SCHEDULER_POLL_MS` (default `60000`)

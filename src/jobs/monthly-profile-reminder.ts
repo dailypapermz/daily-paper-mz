@@ -1,6 +1,5 @@
-﻿import { createProfileRefreshService } from "../modules/profile-build";
+import { runMonthlyProfileReminderCheck } from "../modules/scheduler";
 
 export async function runMonthlyProfileReminder() {
-  const service = createProfileRefreshService();
-  return service.runMonthlyReminderCheck();
+  return runMonthlyProfileReminderCheck();
 }
