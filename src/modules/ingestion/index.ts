@@ -1,4 +1,5 @@
 ﻿export { createDailyIngestionService } from "./factory";
+export { BioRxivSourceAdapter } from "./biorxiv-adapter";
 export {
   createAdapterMap,
   DefaultDailyIngestionService,
