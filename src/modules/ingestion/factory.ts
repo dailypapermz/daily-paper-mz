@@ -4,6 +4,7 @@ import { PrismaDailyIngestionRepository } from "../../db/repositories";
 import { ArxivSourceAdapter } from "./arxiv-adapter";
 import { BioRxivSourceAdapter } from "./biorxiv-adapter";
 import { createAdapterMap, DefaultDailyIngestionService } from "./ingestion-foundation.service";
+import { PubmedSourceAdapter } from "./pubmed-adapter";
 import type { DailySourceAdapter } from "./types";
 
 export function createDailyIngestionService(adapters: DailySourceAdapter[] = []) {
@@ -15,6 +16,9 @@ export function createDailyIngestionService(adapters: DailySourceAdapter[] = [])
     }),
     new ArxivSourceAdapter({
       categoryScopes: env.ARXIV_CATEGORY_SCOPES
+    }),
+    new PubmedSourceAdapter({
+      queryScope: env.PUBMED_QUERY_SCOPE
     })
   ];
 

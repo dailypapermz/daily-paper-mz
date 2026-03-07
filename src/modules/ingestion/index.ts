@@ -1,6 +1,7 @@
 ﻿export { createDailyIngestionService } from "./factory";
 export { ArxivSourceAdapter } from "./arxiv-adapter";
 export { BioRxivSourceAdapter } from "./biorxiv-adapter";
+export { PubmedSourceAdapter } from "./pubmed-adapter";
 export {
   createAdapterMap,
   DefaultDailyIngestionService,
