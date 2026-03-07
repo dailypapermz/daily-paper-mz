@@ -111,6 +111,16 @@ enum CandidateMergeReason {
   SOURCE_EXTERNAL_ID
 }
 
+enum CandidateContentProvenance {
+  GENERATED
+  USER_CORRECTED
+}
+
+enum CandidateLabelType {
+  CONTENT_RECALL
+  RESEARCH_TYPE
+}
+
 model ZoteroSyncRun {
   id               String           @id @default(cuid())
   mode             ZoteroSyncMode
@@ -471,6 +481,8 @@ model DailyCanonicalCandidate {
   updatedAt         DateTime                          @updatedAt
   run               DailyIngestionRun                @relation(fields: [runId], references: [id], onDelete: Cascade)
   provenances       DailyCanonicalCandidateProvenance[]
+  summary           DailyCandidateSummary?
+  labels            DailyCandidateStructuredLabel[]
 
   @@unique([runId, canonicalKey])
   @@index([runId])
@@ -490,6 +502,42 @@ model DailyCanonicalCandidateProvenance {
 
   @@index([canonicalCandidateId])
   @@index([source, mergeReason])
+}
+
+model DailyCandidateSummary {
+  id                  String                     @id @default(cuid())
+  canonicalCandidateId String                    @unique
+  researchQuestion    String
+  method              String
+  mainFinding         String
+  relevanceToUser     String
+  provenance          CandidateContentProvenance @default(GENERATED)
+  provider            String
+  createdAt           DateTime                   @default(now())
+  updatedAt           DateTime                   @updatedAt
+  canonicalCandidate  DailyCanonicalCandidate    @relation(fields: [canonicalCandidateId], references: [id], onDelete: Cascade)
+
+  @@index([provenance])
+}
+
+model DailyCandidateStructuredLabel {
+  id                  String                     @id @default(cuid())
+  canonicalCandidateId String
+  labelType           CandidateLabelType
+  contentRecallLabel  String?
+  researchCategory    ResearchTypeCategory?
+  primaryKeyword      String?
+  secondaryKeyword    String?
+  rawLabelText        String?
+  provenance          CandidateContentProvenance @default(GENERATED)
+  provider            String
+  createdAt           DateTime                   @default(now())
+  updatedAt           DateTime                   @updatedAt
+  canonicalCandidate  DailyCanonicalCandidate    @relation(fields: [canonicalCandidateId], references: [id], onDelete: Cascade)
+
+  @@unique([canonicalCandidateId, labelType])
+  @@index([canonicalCandidateId])
+  @@index([provenance, labelType])
 }
 
 model JournalFeedSource {

@@ -11,3 +11,4 @@ export { PrismaDailyIngestionRepository } from "./daily-ingestion-repository";
 export { PrismaJournalFeedRepository } from "./journal-feed-repository";
 export { PrismaJournalEnrichmentRepository } from "./journal-enrichment-repository";
 export { PrismaCandidateNormalizationRepository } from "./candidate-normalization-repository";
+export { PrismaCandidateOutputRepository } from "./candidate-output-repository";
