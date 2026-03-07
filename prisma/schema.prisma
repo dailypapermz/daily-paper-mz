@@ -85,6 +85,19 @@ enum ProfileRefreshJobStatus {
   FAILED
 }
 
+enum CandidateSource {
+  BIORXIV
+  ARXIV
+  PUBMED
+  JOURNAL
+}
+
+enum DailyIngestionRunStatus {
+  RUNNING
+  SUCCESS
+  FAILED
+}
+
 model ZoteroSyncRun {
   id               String           @id @default(cuid())
   mode             ZoteroSyncMode
@@ -370,4 +383,53 @@ model ProfileReminderCheck {
 
   @@index([checkedAt])
   @@index([isDue, checkedAt])
+}
+
+model DailyIngestionRun {
+  id             String                @id @default(cuid())
+  source         CandidateSource
+  status         DailyIngestionRunStatus @default(RUNNING)
+  runDate        DateTime
+  startedAt      DateTime              @default(now())
+  finishedAt     DateTime?
+  candidatesCount Int                  @default(0)
+  errorMessage   String?
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+  candidates     DailyCandidate[]
+
+  @@index([source, runDate])
+  @@index([status, startedAt])
+}
+
+model DailyCandidate {
+  id               String          @id @default(cuid())
+  runId            String
+  source           CandidateSource
+  externalId       String
+  title            String?
+  abstractNote     String?
+  publishedAt      DateTime?
+  indexedAt        DateTime?
+  url              String?
+  doi              String?
+  pmid             String?
+  arxivId          String?
+  bioRxivId        String?
+  journalName      String?
+  authorsJson      Json?
+  sourcePayloadJson Json
+  ingestedAt       DateTime        @default(now())
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  run              DailyIngestionRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@unique([runId, source, externalId])
+  @@index([runId])
+  @@index([source, publishedAt])
+  @@index([source, indexedAt])
+  @@index([doi])
+  @@index([pmid])
+  @@index([arxivId])
+  @@index([bioRxivId])
 }
