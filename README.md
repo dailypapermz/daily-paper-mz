@@ -1,60 +1,123 @@
 # Daily Paper
 
-Scaffold for the daily literature triage MVP.
+Daily literature triage MVP centered on Zotero, with two coupled pipelines:
+- profile pipeline (low-frequency): Zotero sync, collection priorities, profile snapshot refresh
+- daily pipeline (high-frequency): ingestion, enrichment, dedup, summary/labels, recall + rerank
 
 ## Stack
 - Next.js + TypeScript
 - Prisma
-- SQLite by default for local MVP
+- SQLite by default for local MVP (`DATABASE_URL` can point to PostgreSQL)
 
 ## Local Setup
 1. Install dependencies:
    - `npm install`
-2. Create `.env` from `.env.example` and set required values:
-   - `DATABASE_URL`
-   - `ZOTERO_KEY`
-   - `ZOTERO_ID`
-3. Validate environment:
-   - `npm run check:env`
-4. Generate Prisma client:
+2. Create `.env` from `.env.example`:
+   - required: `DATABASE_URL`, `ZOTERO_KEY`, `ZOTERO_ID`
+   - optional: source scopes, LLM/journal integration keys, scheduler settings
+3. Run schema and generate client:
+   - `npm run prisma:migrate`
    - `npm run prisma:generate`
-5. Start development server:
+4. Validate environment:
+   - `npm run check:env`
+5. Start app:
    - `npm run dev`
-6. Verify health route:
-   - `http://localhost:3000/api/health`
+6. Health check:
+   - `GET http://localhost:3000/api/health`
 
-## Current Status
-This repository currently contains scaffold and shared foundation modules.
-Feature/business modules are implemented issue by issue.
+## End-to-End MVP Runbook
+
+### Preferred single-trigger path
+Use the integrated route:
+- `POST /api/jobs/mvp-flow`
+- optional body:
+  - `syncMode`: `"full"` or `"incremental"` (default `"incremental"`)
+  - `runDate`: `YYYY-MM-DD` (UTC day for ingestion)
+  - `sources`: subset of `["biorxiv","arxiv","pubmed","journal"]`
+
+This orchestrates:
+1. Zotero sync
+2. collection priority read/effective summary
+3. manual profile refresh (new active snapshot)
+4. daily pipeline (ingest -> enrich -> dedup -> summary/labels -> recall -> rerank)
+5. dashboard feed snapshot readback
+
+### Manual route-by-route path
+1. Sync Zotero:
+   - `POST /api/zotero/sync` with `{ "mode": "incremental" }`
+2. Review/update collection priorities:
+   - `GET /api/zotero/collections/priorities`
+   - `PUT /api/zotero/collections/priorities`
+3. Refresh profile:
+   - `POST /api/profile/refresh`
+4. Ingest daily candidates (per source):
+   - `POST /api/ingestion/runs`
+5. Run ranking:
+   - `POST /api/ranking/recall`
+   - `POST /api/ranking/rerank`
+6. Open dashboard:
+   - `/`
+   - data API: `GET /api/recommendations/daily`
+7. Store user feedback and label edits:
+   - `POST /api/feedback/actions`
+   - `PUT /api/candidates/content`
+
+## Scheduler Jobs
+- `POST /api/jobs/daily`: run daily recommendation pipeline
+- `POST /api/jobs/monthly-reminder`: profile-refresh reminder check
+- `POST /api/jobs/mvp-flow`: full local MVP orchestration
+
+CLI wrappers:
+- `npm run job:daily`
+- `npm run job:monthly-reminder`
+- `npm run job:scheduler-loop`
+
+Scheduler env knobs:
+- `APP_BASE_URL`
+- `SCHEDULER_DAILY_UTC_HOUR`
+- `SCHEDULER_MONTHLY_UTC_DAY`
+- `SCHEDULER_MONTHLY_UTC_HOUR`
+- `SCHEDULER_POLL_MS`
+
+## Validation Commands
+- tests: `npm run test`
+- typecheck: `npm run typecheck`
+- production build: `npm run build`
+
+If `next build` fails in Windows sandboxed environments with `EPERM ... Application Data`, run build with an isolated home/profile:
+
+```powershell
+$root=(Resolve-Path .).Path
+$fakeHome=Join-Path $root '.codex-home'
+$fakeAppData=Join-Path $fakeHome 'AppData\Roaming'
+$fakeLocal=Join-Path $fakeHome 'AppData\Local'
+New-Item -ItemType Directory -Force -Path $fakeAppData,$fakeLocal | Out-Null
+$env:HOME=$fakeHome
+$env:USERPROFILE=$fakeHome
+$env:HOMEDRIVE=$fakeHome.Substring(0,2)
+$env:HOMEPATH=$fakeHome.Substring(2)
+$env:APPDATA=$fakeAppData
+$env:LOCALAPPDATA=$fakeLocal
+npm run build
+```
+
+## Known Limitations
+- External integrations depend on real credentials/network (`ZOTERO_KEY`, source APIs, optional LLM/enrichment APIs).
+- Providers are honest about unavailability; they degrade gracefully and record failure metadata.
+- Daily ingestion is currently source-triggered; orchestration runs configured sources sequentially and aggregates outcomes.
+- Single-user MVP data model and UI; no auth/tenant partitioning yet.
+- Ranking remains explainable linear/semi-linear by design; no opaque model training in MVP.
+
+## Extension Points
+- Swap SQLite for PostgreSQL via `DATABASE_URL`.
+- Replace unavailable provider adapters with real production integrations.
+- Add richer source scopes and additional ingestion adapters.
+- Introduce stronger multi-source joint-run orchestration if needed.
+- Extend feedback consumption logic during profile refresh with stricter controls or weighting.
 
 ## Directory Highlights
-- `src/app`: Next.js app router pages and route handlers
-- `src/modules`: feature module placeholders aligned with MVP architecture
-- `src/db`: Prisma/data access placeholders
-- `src/lib`: shared config/types/logging/utilities
-- `src/jobs`: scheduler/job placeholders
-- `prisma/schema.prisma`: initial Prisma setup
-
-## Scheduled Job Examples (DAI-42)
-The app includes simple runnable scheduler examples without extra infrastructure.
-
-### API job triggers
-- `POST /api/jobs/daily`
-  - Runs source ingestion, enrichment, deduplication, summary generation, recall, and rerank for configured sources.
-- `POST /api/jobs/monthly-reminder`
-  - Runs monthly profile refresh reminder check.
-
-### CLI examples
-- Run daily job once:
-  - `npm run job:daily`
-- Run monthly reminder once:
-  - `npm run job:monthly-reminder`
-- Run loop scheduler (checks UTC clock periodically):
-  - `npm run job:scheduler-loop`
-
-### Scheduler env knobs
-- `APP_BASE_URL` (default `http://localhost:3000`)
-- `SCHEDULER_DAILY_UTC_HOUR` (default `6`)
-- `SCHEDULER_MONTHLY_UTC_DAY` (default `1`)
-- `SCHEDULER_MONTHLY_UTC_HOUR` (default `7`)
-- `SCHEDULER_POLL_MS` (default `60000`)
+- `src/app`: pages and thin API handlers
+- `src/modules`: business modules (`zotero-sync`, `collections`, `profile-build`, `ingestion`, `ranking`, `feedback`, `scheduler`)
+- `src/db/repositories`: Prisma-backed repository layer
+- `src/lib`: config, logging, errors, shared utilities/types
+- `prisma/schema.prisma`: current schema and relations

@@ -247,8 +247,8 @@ export default function HomePage() {
       {!loading && error && <p className="error">Failed to load recommendations: {error}</p>}
       {!loading && !error && !feed && (
         <p>
-          No recommendation run found yet. Run <code>/api/ranking/recall</code> then <code>/api/ranking/rerank</code>
-          .
+          No recommendation run found yet. Run <code>POST /api/jobs/mvp-flow</code> (full flow) or{" "}
+          <code>POST /api/jobs/daily</code> (daily-only flow), then refresh this page.
         </p>
       )}
 
