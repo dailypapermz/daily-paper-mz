@@ -1,0 +1,69 @@
+﻿export type ProfileInterestSegmentValue = "recent_core" | "stable_long_term" | "background";
+export type ProfileRepresentationSourceValue = "structured_tags" | "title_abstract";
+
+export type ProfileEligibleItem = {
+  itemId: string;
+  zoteroItemKey: string;
+  title?: string;
+  abstractNote?: string;
+  dateAdded?: Date;
+  libraryVersion?: number;
+  collectionPriorities: Array<"primary" | "secondary">;
+  attentionLevel: number;
+  contentRecallLabels: string[];
+  researchCategories: Array<"method" | "biology" | "resource" | "benchmark">;
+  researchKeywords: string[];
+};
+
+export type ProfileSnapshotItemInput = {
+  itemId: string;
+  segment: ProfileInterestSegmentValue;
+  finalWeight: number;
+  collectionWeight: number;
+  attentionWeight: number;
+  recencyWeight: number;
+  representationSource: ProfileRepresentationSourceValue;
+  contentRecallLabel?: string;
+  researchCategory?: "method" | "biology" | "resource" | "benchmark";
+  representationText: string;
+};
+
+export type ProfileResearchPreferenceInput = {
+  category: "method" | "biology" | "resource" | "benchmark";
+  weight: number;
+  itemCount: number;
+};
+
+export type ProfileSnapshotSummary = {
+  id: string;
+  status: "active" | "superseded";
+  builtAt: string;
+  sourceLibraryVersion?: number;
+  itemsCount: number;
+  segments: {
+    recentCore: number;
+    stableLongTerm: number;
+    background: number;
+  };
+  researchTypePreferences: Array<{
+    category: "method" | "biology" | "resource" | "benchmark";
+    weight: number;
+    itemCount: number;
+  }>;
+};
+
+export interface ProfileSnapshotRepository {
+  listEligibleItems(): Promise<ProfileEligibleItem[]>;
+  saveActiveSnapshot(input: {
+    sourceLibraryVersion?: number;
+    items: ProfileSnapshotItemInput[];
+    researchPreferences: ProfileResearchPreferenceInput[];
+    summaryJson: Record<string, unknown>;
+  }): Promise<ProfileSnapshotSummary>;
+  getActiveSnapshot(): Promise<ProfileSnapshotSummary | null>;
+}
+
+export interface ProfileBuildService {
+  buildSnapshot(): Promise<ProfileSnapshotSummary>;
+  getActiveSnapshot(): Promise<ProfileSnapshotSummary | null>;
+}

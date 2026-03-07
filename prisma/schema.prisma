@@ -57,6 +57,22 @@ enum TagGenerationItemStatus {
   FAILED
 }
 
+enum ProfileSnapshotStatus {
+  ACTIVE
+  SUPERSEDED
+}
+
+enum ProfileInterestSegment {
+  RECENT_CORE
+  STABLE_LONG_TERM
+  BACKGROUND
+}
+
+enum ProfileRepresentationSource {
+  STRUCTURED_TAGS
+  TITLE_ABSTRACT
+}
+
 model ZoteroSyncRun {
   id               String           @id @default(cuid())
   mode             ZoteroSyncMode
@@ -95,6 +111,7 @@ model ZoteroItemRaw {
   contentRecallTags  ZoteroItemContentRecallTag[]
   researchTypeTags   ZoteroItemResearchTypeTag[]
   generationJobItems ZoteroTagGenerationJobItem[]
+  profileSignals     ProfileSnapshotItemSignal[]
 
   @@index([syncedAt])
   @@index([libraryVersion])
@@ -263,4 +280,54 @@ model ZoteroTagGenerationJobItem {
   @@index([jobId])
   @@index([itemId])
   @@index([status])
+}
+
+model ProfileSnapshot {
+  id                       String                                 @id @default(cuid())
+  status                   ProfileSnapshotStatus                  @default(ACTIVE)
+  builtAt                  DateTime                               @default(now())
+  sourceLibraryVersion     Int?
+  itemsCount               Int                                    @default(0)
+  summaryJson              Json?
+  createdAt                DateTime                               @default(now())
+  updatedAt                DateTime                               @updatedAt
+  itemSignals              ProfileSnapshotItemSignal[]
+  researchTypePreferences  ProfileSnapshotResearchTypePreference[]
+
+  @@index([status, builtAt])
+}
+
+model ProfileSnapshotItemSignal {
+  id                   String                      @id @default(cuid())
+  snapshotId           String
+  itemId               String
+  segment              ProfileInterestSegment
+  finalWeight          Float
+  collectionWeight     Float
+  attentionWeight      Float
+  recencyWeight        Float
+  representationSource ProfileRepresentationSource
+  contentRecallLabel   String?
+  researchCategory     ResearchTypeCategory?
+  representationText   String
+  createdAt            DateTime                    @default(now())
+  snapshot             ProfileSnapshot             @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+  item                 ZoteroItemRaw               @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@index([snapshotId])
+  @@index([itemId])
+  @@index([segment])
+}
+
+model ProfileSnapshotResearchTypePreference {
+  id        String               @id @default(cuid())
+  snapshotId String
+  category  ResearchTypeCategory
+  weight    Float
+  itemCount Int
+  createdAt DateTime             @default(now())
+  snapshot  ProfileSnapshot      @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+
+  @@unique([snapshotId, category])
+  @@index([snapshotId])
 }
