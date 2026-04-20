@@ -116,6 +116,12 @@ describe("DefaultDailyIngestionService", () => {
             authors: ["Alice", " Alice "]
           },
           {
+            externalId: "today-1",
+            publishedAt: new Date(window.dayStart.getTime() + 90 * 60 * 1000),
+            sourcePayload: { id: "duplicate" },
+            authors: ["Duplicate"]
+          },
+          {
             externalId: "old-1",
             publishedAt: new Date(window.dayStart.getTime() - 60 * 60 * 1000),
             sourcePayload: { id: 2 },
@@ -135,6 +141,7 @@ describe("DefaultDailyIngestionService", () => {
     expect(result.run.status).toBe("success");
     expect(result.run.candidatesCount).toBe(1);
     expect(result.candidates[0].externalId).toBe("today-1");
+    expect(result.candidates[0].sourcePayload.id).toBe(1);
   });
 
   it("throws controlled error when adapter is missing", async () => {

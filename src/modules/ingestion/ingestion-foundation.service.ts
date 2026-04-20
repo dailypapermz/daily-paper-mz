@@ -128,7 +128,7 @@ export class DefaultDailyIngestionService implements DailyIngestionService {
       .map((candidate) => normalizeAdapterCandidate(candidate))
       .filter((candidate) => isCandidateInUtcDay(candidate, window, adapter.source));
 
-    return filtered.filter((candidate) => candidate.externalId.length > 0);
+    return dedupeByExternalId(filtered.filter((candidate) => candidate.externalId.length > 0));
   }
 
   private async handleRunFailure(runId: string, error: unknown) {
@@ -145,6 +145,22 @@ export class DefaultDailyIngestionService implements DailyIngestionService {
       errorMessage: appError.message
     });
   }
+}
+
+function dedupeByExternalId(candidates: DailySourceAdapterCandidate[]): DailySourceAdapterCandidate[] {
+  const seen = new Set<string>();
+  const deduped: DailySourceAdapterCandidate[] = [];
+
+  for (const candidate of candidates) {
+    if (seen.has(candidate.externalId)) {
+      continue;
+    }
+
+    seen.add(candidate.externalId);
+    deduped.push(candidate);
+  }
+
+  return deduped;
 }
 
 export function createAdapterMap(adapters: DailySourceAdapter[]): Map<string, DailySourceAdapter> {
