@@ -191,9 +191,52 @@ describe("DefaultDailyIngestionService", () => {
     expect(result.run.status).toBe("success");
     expect(result.run.candidatesCount).toBe(2);
     expect(result.sourceSummaries).toEqual([
-      { source: "arxiv", candidatesCount: 1 },
-      { source: "pubmed", candidatesCount: 1 }
+      { source: "arxiv", status: "success", candidatesCount: 1 },
+      { source: "pubmed", status: "success", candidatesCount: 1 }
     ]);
     expect(result.candidates.map((candidate) => candidate.source)).toEqual(["arxiv", "pubmed"]);
+  });
+
+  it("continues aggregated ingestion when one source fails and another succeeds", async () => {
+    const adapters: DailySourceAdapter[] = [
+      {
+        source: "biorxiv",
+        async fetchCandidatesForDay() {
+          throw new Error("bioRxiv unavailable");
+        }
+      },
+      {
+        source: "arxiv",
+        async fetchCandidatesForDay(window) {
+          return [
+            {
+              externalId: "ax-1",
+              publishedAt: new Date(window.dayStart.getTime() + 30 * 60 * 1000),
+              sourcePayload: { id: "ax-1" },
+              authors: []
+            }
+          ];
+        }
+      }
+    ];
+
+    const service = new DefaultDailyIngestionService(createAdapterMap(adapters), new FakeRepository());
+    const result = await service.runAggregatedIngestion({
+      runDate: "2026-03-07T00:00:00.000Z",
+      sources: ["biorxiv", "arxiv"]
+    });
+
+    expect(result.run.status).toBe("success");
+    expect(result.run.candidatesCount).toBe(1);
+    expect(result.sourceSummaries).toEqual([
+      {
+        source: "biorxiv",
+        status: "failed",
+        candidatesCount: 0,
+        errorMessage: "bioRxiv unavailable"
+      },
+      { source: "arxiv", status: "success", candidatesCount: 1 }
+    ]);
+    expect(result.candidates.map((candidate) => candidate.source)).toEqual(["arxiv"]);
   });
 });

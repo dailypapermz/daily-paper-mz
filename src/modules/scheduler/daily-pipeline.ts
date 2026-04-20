@@ -65,8 +65,9 @@ export async function runDailyRecommendationPipeline(input?: {
 
     results = ingestResult.sourceSummaries.map((entry) => ({
       source: entry.source,
-      runId,
-      status: "success"
+      ...(entry.status === "failed" ? {} : { runId }),
+      status: entry.status ?? "success",
+      ...(entry.errorMessage ? { errorMessage: entry.errorMessage } : {})
     }));
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : "Unknown scheduler daily error";

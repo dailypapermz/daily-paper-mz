@@ -50,7 +50,9 @@ export type DailyIngestionRunSummary = {
 
 export type AggregatedSourceIngestionSummary = {
   source: DailyCandidateSourceValue;
+  status?: "success" | "failed";
   candidatesCount: number;
+  errorMessage?: string;
 };
 
 export type JournalFeedSourceRecord = {

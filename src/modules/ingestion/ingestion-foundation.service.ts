@@ -65,22 +65,42 @@ export class DefaultDailyIngestionService implements DailyIngestionService {
 
     const sourceSummaries: AggregatedSourceIngestionSummary[] = [];
     const entries: Array<{ source: DailyCandidateSourceValue; candidate: DailySourceAdapterCandidate }> = [];
+    let succeededSourceCount = 0;
 
     try {
       for (const source of sources) {
-        const adapter = this.getAdapterOrThrow(source);
-        const candidates = await this.fetchValidCandidates(adapter, window);
-        sourceSummaries.push({
-          source,
-          candidatesCount: candidates.length
-        });
-
-        for (const candidate of candidates) {
-          entries.push({
+        try {
+          const adapter = this.getAdapterOrThrow(source);
+          const candidates = await this.fetchValidCandidates(adapter, window);
+          succeededSourceCount += 1;
+          sourceSummaries.push({
             source,
-            candidate
+            status: "success",
+            candidatesCount: candidates.length
+          });
+
+          for (const candidate of candidates) {
+            entries.push({
+              source,
+              candidate
+            });
+          }
+        } catch (error) {
+          sourceSummaries.push({
+            source,
+            status: "failed",
+            candidatesCount: 0,
+            errorMessage: errorToMessage(error)
           });
         }
+      }
+
+      if (succeededSourceCount === 0) {
+        throw new AppError(
+          "AGGREGATED_INGESTION_FAILED",
+          sourceSummaries.find((summary) => summary.errorMessage)?.errorMessage ??
+            "All configured daily sources failed"
+        );
       }
 
       const candidatesCount = await this.repository.saveCandidates({
@@ -145,6 +165,10 @@ export class DefaultDailyIngestionService implements DailyIngestionService {
       errorMessage: appError.message
     });
   }
+}
+
+function errorToMessage(error: unknown): string {
+  return error instanceof Error ? error.message : "Unknown source ingestion error";
 }
 
 function dedupeByExternalId(candidates: DailySourceAdapterCandidate[]): DailySourceAdapterCandidate[] {

@@ -80,4 +80,38 @@ describe("runDailyRecommendationPipeline", () => {
     expect(mocks.runRecall).toHaveBeenCalledWith({ runId: "run-1" });
     expect(mocks.runRerank).toHaveBeenCalledWith({ runId: "run-1" });
   });
+
+  it("preserves per-source failures from partial aggregated ingestion", async () => {
+    mocks.runAggregatedIngestion.mockResolvedValue({
+      run: { id: "run-1" },
+      sourceSummaries: [
+        {
+          source: "biorxiv",
+          status: "failed",
+          candidatesCount: 0,
+          errorMessage: "bioRxiv unavailable"
+        },
+        { source: "pubmed", status: "success", candidatesCount: 10 }
+      ]
+    });
+
+    const result = await runDailyRecommendationPipeline({
+      sources: ["biorxiv", "pubmed"]
+    });
+
+    expect(result.sources).toEqual([
+      {
+        source: "biorxiv",
+        status: "failed",
+        errorMessage: "bioRxiv unavailable"
+      },
+      {
+        source: "pubmed",
+        runId: "run-1",
+        status: "success"
+      }
+    ]);
+    expect(mocks.enrichRun).toHaveBeenCalledWith("run-1");
+    expect(mocks.runForIngestionRun).toHaveBeenCalledWith("run-1");
+  });
 });
