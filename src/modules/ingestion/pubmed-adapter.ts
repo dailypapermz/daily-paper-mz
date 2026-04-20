@@ -28,6 +28,7 @@ type PubmedSummaryRecord = {
   title?: string;
   pubdate?: string;
   sortpubdate?: string;
+  history?: Array<{ pubstatus?: string; date?: string }>;
   articleids?: Array<{ idtype?: string; value?: string }>;
   authors?: Array<{ name?: string }>;
   [key: string]: unknown;
@@ -200,13 +201,17 @@ function mapPubmedRecord(record: PubmedSummaryRecord, abstractText?: string): Da
   const doi = Array.isArray(record.articleids)
     ? sanitize(record.articleids.find((id) => id.idtype === "doi")?.value)
     : undefined;
+  const historyDates = extractHistoryDates(record.history);
 
   return {
     externalId: pmid,
     title: sanitize(record.title),
     abstractNote: abstractText,
-    publishedAt: toDate(record.sortpubdate ?? record.pubdate),
-    indexedAt: toDate(record.sortpubdate ?? record.pubdate),
+    publishedAt: parsePubmedDateValue(record.sortpubdate) ?? parsePubmedDateValue(record.pubdate),
+    indexedAt:
+      parsePubmedHistoryDate(historyDates.entrez) ??
+      parsePubmedHistoryDate(historyDates.pubmed) ??
+      parsePubmedHistoryDate(historyDates.medline),
     url: `https://pubmed.ncbi.nlm.nih.gov/${pmid}/`,
     doi,
     pmid,
@@ -216,9 +221,33 @@ function mapPubmedRecord(record: PubmedSummaryRecord, abstractText?: string): Da
       : [],
     sourcePayload: {
       summary: record,
-      abstractText: abstractText ?? null
+      abstractText: abstractText ?? null,
+      historyDates
     }
   };
+}
+
+function extractHistoryDates(history: PubmedSummaryRecord["history"]) {
+  const dates: {
+    entrez?: string;
+    pubmed?: string;
+    medline?: string;
+  } = {};
+
+  for (const entry of history ?? []) {
+    const status = sanitize(entry.pubstatus)?.toLowerCase();
+    const date = sanitize(entry.date);
+
+    if (!status || !date) {
+      continue;
+    }
+
+    if (status === "entrez" || status === "pubmed" || status === "medline") {
+      dates[status] = date;
+    }
+  }
+
+  return dates;
 }
 
 function parsePubmedAbstracts(xml: string): Map<string, string> {
@@ -274,13 +303,47 @@ function sanitize(value: unknown): string | undefined {
   return normalized.length > 0 ? normalized : undefined;
 }
 
-function toDate(value: unknown): Date | undefined {
+function parsePubmedDateValue(value: unknown): Date | undefined {
   if (typeof value !== "string" || value.trim() === "") {
     return undefined;
   }
 
+  const normalized = value.trim();
+  const slashMatch = normalized.match(/^(\d{4})\/(\d{2})\/(\d{2})(?:\s+(\d{2}):(\d{2}))?$/);
+  if (slashMatch) {
+    const [, year, month, day, hours = "00", minutes = "00"] = slashMatch;
+    return new Date(
+      Date.UTC(
+        Number.parseInt(year, 10),
+        Number.parseInt(month, 10) - 1,
+        Number.parseInt(day, 10),
+        Number.parseInt(hours, 10),
+        Number.parseInt(minutes, 10)
+      )
+    );
+  }
+
+  const textualMatch = normalized.match(/^(\d{4})\s+([A-Za-z]{3})\s+(\d{1,2})$/);
+  if (textualMatch) {
+    const [, year, monthToken, day] = textualMatch;
+    const month = monthFromToken(monthToken);
+    if (month !== undefined) {
+      return new Date(Date.UTC(Number.parseInt(year, 10), month, Number.parseInt(day, 10)));
+    }
+  }
+
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime()) ? undefined : parsed;
+}
+
+function parsePubmedHistoryDate(value?: string): Date | undefined {
+  return parsePubmedDateValue(value);
+}
+
+function monthFromToken(value: string): number | undefined {
+  const months = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+  const index = months.indexOf(value.toLowerCase());
+  return index >= 0 ? index : undefined;
 }
 
 function chunk<T>(items: T[], size: number): T[][] {

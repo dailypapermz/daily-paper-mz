@@ -27,7 +27,22 @@ describe("PubmedSourceAdapter", () => {
             "40000001": {
               uid: "40000001",
               title: "PubMed candidate",
-              sortpubdate: "2026-03-07",
+              sortpubdate: "2026/03/08 00:00",
+              pubdate: "2026 Mar 8",
+              history: [
+                {
+                  pubstatus: "entrez",
+                  date: "2026/03/07 15:32"
+                },
+                {
+                  pubstatus: "pubmed",
+                  date: "2026/03/07 18:40"
+                },
+                {
+                  pubstatus: "medline",
+                  date: "2026/03/07 18:55"
+                }
+              ],
               articleids: [
                 {
                   idtype: "doi",
@@ -62,6 +77,13 @@ describe("PubmedSourceAdapter", () => {
     expect(records[0].pmid).toBe("40000001");
     expect(records[0].doi).toBe("10.1000/pubmed");
     expect(records[0].abstractNote).toBe("Detailed abstract for candidate.");
+    expect(records[0].publishedAt?.toISOString()).toBe("2026-03-08T00:00:00.000Z");
+    expect(records[0].indexedAt?.toISOString()).toBe("2026-03-07T15:32:00.000Z");
+    expect(records[0].sourcePayload.historyDates).toEqual({
+      entrez: "2026/03/07 15:32",
+      pubmed: "2026/03/07 18:40",
+      medline: "2026/03/07 18:55"
+    });
   });
 
   it("supports paginated esearch and batched follow-up requests", async () => {

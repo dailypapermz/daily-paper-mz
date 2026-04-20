@@ -14,9 +14,13 @@ export function resolveUtcDayWindow(runDate?: string): UtcDayWindow {
 
 export function isCandidateInUtcDay(
   candidate: Pick<DailySourceAdapterCandidate, "publishedAt" | "indexedAt">,
-  window: UtcDayWindow
+  window: UtcDayWindow,
+  source?: "biorxiv" | "arxiv" | "pubmed" | "journal"
 ): boolean {
-  const reference = candidate.publishedAt ?? candidate.indexedAt;
+  const reference =
+    source === "pubmed"
+      ? candidate.indexedAt ?? candidate.publishedAt
+      : candidate.publishedAt ?? candidate.indexedAt;
 
   if (!reference) {
     return false;

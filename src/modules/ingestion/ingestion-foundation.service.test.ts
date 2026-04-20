@@ -164,6 +164,7 @@ describe("DefaultDailyIngestionService", () => {
           return [
             {
               externalId: "pm-1",
+              publishedAt: new Date(window.dayEnd.getTime() + 1),
               indexedAt: new Date(window.dayStart.getTime() + 45 * 60 * 1000),
               sourcePayload: { id: "pm-1" },
               authors: ["Author P"]

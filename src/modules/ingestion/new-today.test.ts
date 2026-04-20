@@ -36,6 +36,32 @@ describe("ingestion new-today helpers", () => {
     ).toBe(false);
   });
 
+  it("uses indexedAt for PubMed edat-driven candidates", () => {
+    const window = resolveUtcDayWindow("2026-03-12T10:00:00.000Z");
+
+    expect(
+      isCandidateInUtcDay(
+        {
+          publishedAt: new Date("2026-03-13T00:00:00.000Z"),
+          indexedAt: new Date("2026-03-12T17:03:00.000Z")
+        },
+        window,
+        "pubmed"
+      )
+    ).toBe(true);
+
+    expect(
+      isCandidateInUtcDay(
+        {
+          publishedAt: new Date("2026-03-12T09:00:00.000Z"),
+          indexedAt: new Date("2026-03-11T23:00:00.000Z")
+        },
+        window,
+        "pubmed"
+      )
+    ).toBe(false);
+  });
+
   it("normalizes adapter candidate fields", () => {
     const normalized = normalizeAdapterCandidate({
       externalId: "  A-1  ",

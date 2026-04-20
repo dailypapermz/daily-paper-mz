@@ -126,7 +126,7 @@ export class DefaultDailyIngestionService implements DailyIngestionService {
     const fetched = await adapter.fetchCandidatesForDay(window);
     const filtered = fetched
       .map((candidate) => normalizeAdapterCandidate(candidate))
-      .filter((candidate) => isCandidateInUtcDay(candidate, window));
+      .filter((candidate) => isCandidateInUtcDay(candidate, window, adapter.source));
 
     return filtered.filter((candidate) => candidate.externalId.length > 0);
   }
