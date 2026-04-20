@@ -66,6 +66,8 @@ export default function HomePage() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [labelEdits, setLabelEdits] = useState<Record<string, LabelEditState>>({});
   const [editError, setEditError] = useState<string | null>(null);
+  const [exportState, setExportState] = useState<string | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
   const [refreshTick, setRefreshTick] = useState(0);
 
   useEffect(() => {
@@ -206,6 +208,50 @@ export default function HomePage() {
     }
   }
 
+  async function exportToObsidian() {
+    if (!feed) {
+      return;
+    }
+
+    try {
+      setExportError(null);
+      setExportState("Exporting to Obsidian...");
+
+      const response = await fetch("/api/obsidian/export/daily", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          runId: feed.runId,
+          selectedOnly: showSelectedOnly,
+          source: sourceFilter === "all" ? undefined : sourceFilter
+        })
+      });
+
+      const payload = (await response.json()) as {
+        status: string;
+        result?: {
+          dailyNotePath: string;
+          paperNotePaths: string[];
+          recommendationCount: number;
+        };
+        message?: string;
+      };
+
+      if (!response.ok || payload.status !== "ok" || !payload.result) {
+        throw new Error(payload.message ?? `Export failed (${response.status})`);
+      }
+
+      setExportState(
+        `Exported ${payload.result.recommendationCount} recommendations to ${payload.result.dailyNotePath}`
+      );
+    } catch (exportFailure) {
+      setExportState(null);
+      setExportError(exportFailure instanceof Error ? exportFailure.message : "Unknown Obsidian export error");
+    }
+  }
+
   return (
     <main className="dashboard">
       <header className="dashboard-header">
@@ -260,9 +306,14 @@ export default function HomePage() {
             <span>Ingestion run: {feed.runId}</span>
             <span>Generated: {new Date(feed.generatedAt).toLocaleString()}</span>
             <span>Total shown: {recommendations.length}</span>
+            <button type="button" onClick={exportToObsidian}>
+              Export to Obsidian
+            </button>
           </section>
           {actionError ? <p className="error">Failed to persist feedback action: {actionError}</p> : null}
           {editError ? <p className="error">Failed to save label edit: {editError}</p> : null}
+          {exportState ? <p className="success">{exportState}</p> : null}
+          {exportError ? <p className="error">Failed to export to Obsidian: {exportError}</p> : null}
 
           <section className="recommendation-list">
             {recommendations.map((item) => {

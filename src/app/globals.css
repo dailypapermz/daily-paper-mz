@@ -270,6 +270,10 @@ main {
   color: #a12929;
 }
 
+.success {
+  color: #1f6b3a;
+}
+
 @media (max-width: 760px) {
   .dashboard-header {
     flex-direction: column;
