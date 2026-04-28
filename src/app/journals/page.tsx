@@ -9,9 +9,22 @@ type JournalFeedRecord = {
   isActive: boolean;
 };
 
+type JournalFeedHealthRecord = {
+  id: string;
+  status: "healthy" | "http_error" | "invalid_feed" | "request_failed";
+  checkedAt: string;
+  itemCount: number;
+  httpStatus?: number;
+  contentType?: string;
+  finalUrl?: string;
+  errorMessage?: string;
+};
+
 export default function JournalsPage() {
   const [feeds, setFeeds] = useState<JournalFeedRecord[]>([]);
+  const [healthById, setHealthById] = useState<Record<string, JournalFeedHealthRecord>>({});
   const [loading, setLoading] = useState(true);
+  const [checkingHealth, setCheckingHealth] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [journalName, setJournalName] = useState("");
@@ -43,10 +56,38 @@ export default function JournalsPage() {
       }
 
       setFeeds(payload.feeds);
+      void loadHealth();
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "Unknown journal pool load error");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function loadHealth() {
+    setCheckingHealth(true);
+
+    try {
+      const response = await fetch("/api/journals/pool/health", {
+        method: "GET"
+      });
+      const payload = (await response.json()) as {
+        status: string;
+        reports?: JournalFeedHealthRecord[];
+        message?: string;
+      };
+
+      if (!response.ok || payload.status !== "ok" || !payload.reports) {
+        throw new Error(payload.message ?? "Failed to check journal feed health");
+      }
+
+      setHealthById(
+        Object.fromEntries(payload.reports.map((report) => [report.id, report]))
+      );
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Unknown journal feed health error");
+    } finally {
+      setCheckingHealth(false);
     }
   }
 
@@ -89,6 +130,7 @@ export default function JournalsPage() {
       setFeeds(payload.feeds);
       setJournalName("");
       setFeedUrl("");
+      void loadHealth();
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "Unknown journal feed import error");
     } finally {
@@ -125,6 +167,7 @@ export default function JournalsPage() {
       setFeeds((previous) =>
         previous.map((entry) => (entry.id === payload.feed?.id ? payload.feed : entry))
       );
+      void loadHealth();
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "Unknown journal feed update error");
     } finally {
@@ -157,6 +200,7 @@ export default function JournalsPage() {
       }
 
       setFeeds(payload.feeds);
+      void loadHealth();
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "Unknown bootstrap error");
     } finally {
@@ -206,6 +250,9 @@ export default function JournalsPage() {
         <button type="button" onClick={() => void bootstrapFromEnv()} disabled={saving}>
           Bootstrap from JOURNAL_FEED_URLS
         </button>
+        <button type="button" onClick={() => void loadHealth()} disabled={saving || checkingHealth}>
+          {checkingHealth ? "Checking Feeds..." : "Refresh Feed Health"}
+        </button>
       </section>
 
       {loading ? <p>Loading journal pool...</p> : null}
@@ -223,6 +270,21 @@ export default function JournalsPage() {
                 <div>
                   <h2>{feed.journalName}</h2>
                   <p className="meta-line">{feed.feedUrl}</p>
+                  {healthById[feed.id] ? (
+                    <p className="meta-line">
+                      Feed health: {formatHealthStatus(healthById[feed.id])}
+                      {healthById[feed.id]?.itemCount !== undefined
+                        ? ` | entries: ${healthById[feed.id]?.itemCount}`
+                        : ""}
+                    </p>
+                  ) : null}
+                  {healthById[feed.id]?.finalUrl &&
+                  healthById[feed.id]?.finalUrl !== feed.feedUrl ? (
+                    <p className="meta-line">Resolved URL: {healthById[feed.id]?.finalUrl}</p>
+                  ) : null}
+                  {healthById[feed.id]?.errorMessage ? (
+                    <p className="error">{healthById[feed.id]?.errorMessage}</p>
+                  ) : null}
                 </div>
                 <span className="badge">{feed.isActive ? "active" : "inactive"}</span>
               </header>
@@ -237,4 +299,16 @@ export default function JournalsPage() {
       ) : null}
     </main>
   );
+}
+
+function formatHealthStatus(health: JournalFeedHealthRecord): string {
+  if (health.status === "healthy") {
+    return "healthy";
+  }
+
+  if (health.httpStatus) {
+    return `${health.status} (${health.httpStatus})`;
+  }
+
+  return health.status;
 }

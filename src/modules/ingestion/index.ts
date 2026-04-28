@@ -2,6 +2,7 @@
 export { ArxivSourceAdapter } from "./arxiv-adapter";
 export { BioRxivSourceAdapter } from "./biorxiv-adapter";
 export { JournalFeedSourceAdapter } from "./journal-feed-adapter";
+export { checkJournalFeedHealth, checkJournalFeedPoolHealth } from "./journal-feed-health";
 export { PubmedSourceAdapter } from "./pubmed-adapter";
 export {
   createAdapterMap,
