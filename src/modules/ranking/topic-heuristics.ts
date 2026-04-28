@@ -35,17 +35,45 @@ const DOMAIN_TOPIC_TERMS = [
 const GENERIC_NOISE_TERMS = [
   "literature review",
   "scoping review",
+  "systematic review",
+  "meta-analysis",
   "mri",
   "eeg",
   "imaging",
   "radiology",
   "surgical",
+  "clinical management",
+  "patient management",
+  "diagnostic workflow",
   "pelvimetry",
   "gait",
   "dental",
   "orthopedic",
   "diagnostic framework",
   "differential diagnosis"
+] as const;
+
+const CLINICAL_CONTEXT_TERMS = [
+  "clinical",
+  "patient",
+  "patients",
+  "diagnosis",
+  "diagnostic",
+  "management",
+  "workflow",
+  "screening",
+  "triage",
+  "guideline",
+  "review"
+] as const;
+
+const REVIEW_STYLE_TERMS = [
+  "literature review",
+  "systematic review",
+  "scoping review",
+  "meta-analysis",
+  "meta analysis",
+  "review"
 ] as const;
 
 export type TopicHeuristicScore = {
@@ -70,6 +98,12 @@ export function computeTopicHeuristicScore(
   const negativeMatches = GENERIC_NOISE_TERMS.filter((term) =>
     normalized.includes(normalizeForPhraseMatch(term))
   );
+  const clinicalContextMatches = CLINICAL_CONTEXT_TERMS.filter((term) =>
+    normalized.includes(normalizeForPhraseMatch(term))
+  );
+  const reviewStyleMatches = REVIEW_STYLE_TERMS.filter((term) =>
+    normalized.includes(normalizeForPhraseMatch(term))
+  );
 
   const phraseScore = clampScore(Math.min(positiveMatches.length, 6) / 6);
   const profileOverlap = tokenOverlapScore(candidateText, preferredTopicReference);
@@ -80,11 +114,22 @@ export function computeTopicHeuristicScore(
       ? Math.min(negativeMatches.length * 0.07, 0.2)
       : Math.min(Math.max(0, negativeMatches.length - 1) * 0.03, 0.09);
 
+  const clinicalPenalty =
+    positiveMatches.length === 0 && clinicalContextMatches.length >= 2
+      ? Math.min(0.12 + (clinicalContextMatches.length - 2) * 0.02, 0.2)
+      : 0;
+  const reviewPenalty =
+    positiveMatches.length === 0 && reviewStyleMatches.length > 0
+      ? Math.min(0.08 + Math.max(0, reviewStyleMatches.length - 1) * 0.02, 0.12)
+      : 0;
+
   return {
     score,
-    penalty: clampScore(penaltyBase),
+    penalty: clampScore(penaltyBase + clinicalPenalty + reviewPenalty),
     positiveMatches,
-    negativeMatches
+    negativeMatches: [
+      ...new Set([...negativeMatches, ...clinicalContextMatches, ...reviewStyleMatches])
+    ]
   };
 }
 

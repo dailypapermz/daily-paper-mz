@@ -79,6 +79,41 @@ describe("computeRecallFeatures", () => {
     expect(domainFeature.recallScore).toBeGreaterThan(noisyFeature.recallScore);
     expect(domainFeature.reasons).toContain("domain_topic_alignment");
   });
+
+  it("applies extra penalty to clinical workflow titles without omics anchors", () => {
+    const snapshot: ActiveProfileSnapshotRecord = {
+      id: "snap-1",
+      builtAt: new Date().toISOString(),
+      representationTexts: ["single cell cross species transcriptomics genomics"],
+      contentRecallLabels: ["single-cell atlas comparative genomics"],
+      researchTypePreferences: [{ category: "method", weight: 0.8 }]
+    };
+
+    const neutralFeature = computeRecallFeatures(
+      {
+        candidateId: "candidate-neutral",
+        runId: "run-1",
+        title: "AI model for molecular phenotype inference",
+        abstractNote: "Predictive modeling benchmark",
+        sources: ["pubmed"]
+      },
+      snapshot
+    );
+
+    const clinicalFeature = computeRecallFeatures(
+      {
+        candidateId: "candidate-clinical",
+        runId: "run-1",
+        title: "Clinical diagnostic workflow for patient management and triage",
+        abstractNote: "Review of patient screening and diagnosis pipeline",
+        sources: ["pubmed"]
+      },
+      snapshot
+    );
+
+    expect(neutralFeature.recallScore).toBeGreaterThan(clinicalFeature.recallScore);
+    expect(clinicalFeature.reasons).toContain("generic_clinical_noise_penalty");
+  });
 });
 
 describe("DefaultRecallRankingService", () => {

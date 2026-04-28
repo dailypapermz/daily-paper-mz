@@ -91,6 +91,58 @@ describe("computeRerankScores", () => {
     expect(aligned.finalScore).toBeGreaterThan(noisy.finalScore);
     expect(aligned.reasons).toContain("domain_topic_alignment");
   });
+
+  it("pushes clinical management reviews below neutral technical candidates", () => {
+    const profile = {
+      id: "snap-1",
+      builtAt: new Date().toISOString(),
+      recentCoreTexts: ["single-cell transcriptomics cross-species genomics"],
+      stableLongTermTexts: ["bioinformatics regulatory genomics"],
+      highAttentionTexts: ["single-cell atlas genomic prediction"],
+      contentRecallLabels: ["cell atlas comparative genomics"],
+      researchTypePreferences: [{ category: "method" as const, weight: 1 }],
+      averageCollectionWeight: 0.8
+    };
+
+    const neutral = computeRerankScores({
+      candidate: {
+        candidateId: "candidate-neutral",
+        runId: "run-1",
+        title: "Machine learning benchmark for molecular phenotype inference",
+        abstractNote: "Predictive framework and benchmark dataset",
+        sources: ["pubmed"],
+        hasUserCorrectedOutput: false
+      },
+      recalled: {
+        candidateId: "candidate-neutral",
+        recallScore: 0.4,
+        recallRank: 1,
+        selected: true
+      },
+      profile
+    });
+
+    const clinical = computeRerankScores({
+      candidate: {
+        candidateId: "candidate-clinical",
+        runId: "run-1",
+        title: "Clinical management review for patient diagnosis and triage workflow",
+        abstractNote: "Systematic review of screening and clinical workflow design",
+        sources: ["pubmed"],
+        hasUserCorrectedOutput: false
+      },
+      recalled: {
+        candidateId: "candidate-clinical",
+        recallScore: 0.4,
+        recallRank: 1,
+        selected: true
+      },
+      profile
+    });
+
+    expect(neutral.finalScore).toBeGreaterThan(clinical.finalScore);
+    expect(clinical.reasons).toContain("generic_clinical_noise_penalty");
+  });
 });
 
 describe("DefaultRerankService", () => {

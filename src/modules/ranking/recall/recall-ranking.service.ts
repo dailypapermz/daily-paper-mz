@@ -112,12 +112,13 @@ export function computeRecallFeatures(
 
   const sourceScopeScore = computeSourceScopeScore(candidate.sources);
 
-  const recallScore = clampScore(
+  const baseRecallScore =
     semanticScore * 0.55 +
       tagOverlapScore * 0.2 +
       researchTypeScore * 0.15 +
-      sourceScopeScore * 0.1
-  );
+      sourceScopeScore * 0.1;
+
+  const recallScore = clampScore(baseRecallScore - topicHeuristic.penalty * 0.12);
 
   const reasons = buildReasons({
     semanticScore,
