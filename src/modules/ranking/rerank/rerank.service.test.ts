@@ -90,6 +90,7 @@ describe("computeRerankScores", () => {
 
     expect(aligned.finalScore).toBeGreaterThan(noisy.finalScore);
     expect(aligned.reasons).toContain("domain_topic_alignment");
+    expect(noisy.reasons).not.toContain("domain_topic_alignment");
   });
 
   it("pushes clinical management reviews below neutral technical candidates", () => {
@@ -142,6 +143,7 @@ describe("computeRerankScores", () => {
 
     expect(neutral.finalScore).toBeGreaterThan(clinical.finalScore);
     expect(clinical.reasons).toContain("generic_clinical_noise_penalty");
+    expect(clinical.reasons).not.toContain("domain_topic_alignment");
   });
 });
 

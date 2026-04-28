@@ -78,6 +78,7 @@ describe("computeRecallFeatures", () => {
 
     expect(domainFeature.recallScore).toBeGreaterThan(noisyFeature.recallScore);
     expect(domainFeature.reasons).toContain("domain_topic_alignment");
+    expect(noisyFeature.reasons).not.toContain("domain_topic_alignment");
   });
 
   it("applies extra penalty to clinical workflow titles without omics anchors", () => {
@@ -113,6 +114,7 @@ describe("computeRecallFeatures", () => {
 
     expect(neutralFeature.recallScore).toBeGreaterThan(clinicalFeature.recallScore);
     expect(clinicalFeature.reasons).toContain("generic_clinical_noise_penalty");
+    expect(clinicalFeature.reasons).not.toContain("domain_topic_alignment");
   });
 });
 

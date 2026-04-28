@@ -32,6 +32,35 @@ const DOMAIN_TOPIC_TERMS = [
   "genomic prediction"
 ] as const;
 
+const STRONG_DOMAIN_TOPIC_TERMS = [
+  "genomics",
+  "genomic",
+  "epigenomics",
+  "epigenomic",
+  "transcriptomics",
+  "transcriptomic",
+  "single-cell",
+  "single cell",
+  "multi-omics",
+  "multiomics",
+  "bioinformatics",
+  "computational biology",
+  "regulatory genomics",
+  "chromatin",
+  "rna-seq",
+  "scrna-seq",
+  "atac-seq",
+  "spatial transcriptomics",
+  "eqtl",
+  "gwas",
+  "cross-species",
+  "cross species",
+  "comparative genomics",
+  "cell atlas",
+  "single-cell profiling",
+  "genomic prediction"
+] as const;
+
 const GENERIC_NOISE_TERMS = [
   "literature review",
   "scoping review",
@@ -80,6 +109,7 @@ export type TopicHeuristicScore = {
   score: number;
   penalty: number;
   positiveMatches: string[];
+  strongPositiveMatches: string[];
   negativeMatches: string[];
 };
 
@@ -95,6 +125,9 @@ export function computeTopicHeuristicScore(
   const positiveMatches = DOMAIN_TOPIC_TERMS.filter((term) =>
     normalized.includes(normalizeForPhraseMatch(term))
   );
+  const strongPositiveMatches = STRONG_DOMAIN_TOPIC_TERMS.filter((term) =>
+    normalized.includes(normalizeForPhraseMatch(term))
+  );
   const negativeMatches = GENERIC_NOISE_TERMS.filter((term) =>
     normalized.includes(normalizeForPhraseMatch(term))
   );
@@ -106,8 +139,13 @@ export function computeTopicHeuristicScore(
   );
 
   const phraseScore = clampScore(Math.min(positiveMatches.length, 6) / 6);
+  const strongAnchorScore = clampScore(Math.min(strongPositiveMatches.length, 4) / 4);
   const profileOverlap = tokenOverlapScore(candidateText, preferredTopicReference);
-  const score = clampScore(phraseScore * 0.6 + profileOverlap * 0.4);
+  const gatedProfileOverlap =
+    strongPositiveMatches.length > 0 ? profileOverlap : Math.min(profileOverlap, 0.12);
+  const score = clampScore(
+    strongAnchorScore * 0.55 + phraseScore * 0.2 + gatedProfileOverlap * 0.25
+  );
 
   const penaltyBase =
     positiveMatches.length === 0
@@ -127,6 +165,7 @@ export function computeTopicHeuristicScore(
     score,
     penalty: clampScore(penaltyBase + clinicalPenalty + reviewPenalty),
     positiveMatches,
+    strongPositiveMatches,
     negativeMatches: [
       ...new Set([...negativeMatches, ...clinicalContextMatches, ...reviewStyleMatches])
     ]
