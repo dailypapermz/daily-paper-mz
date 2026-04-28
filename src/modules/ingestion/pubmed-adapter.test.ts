@@ -159,5 +159,7 @@ describe("PubmedSourceAdapter", () => {
     expect(records).toHaveLength(201);
     expect(fetchMock).toHaveBeenCalledTimes(7);
     expect(fetchMock.mock.calls.some((call) => String(call[0]).includes("retstart=200"))).toBe(true);
+    expect(fetchMock.mock.calls[0]?.[0]).toContain(encodeURIComponent('"genomics"[Title/Abstract]'));
+    expect(fetchMock.mock.calls[0]?.[0]).not.toContain(encodeURIComponent("all[sb]"));
   });
 });

@@ -8,6 +8,8 @@ const PUBMED_MAX_SEARCH_PAGES = 5;
 const PUBMED_SUMMARY_BATCH_SIZE = 200;
 const PUBMED_ABSTRACT_BATCH_SIZE = 100;
 const REQUEST_TIMEOUT_MS = 12000;
+const DEFAULT_PUBMED_QUERY_SCOPE =
+  '("genomics"[Title/Abstract] OR "epigenomics"[Title/Abstract] OR "multi-omics"[Title/Abstract] OR "multiomics"[Title/Abstract] OR "single-cell"[Title/Abstract] OR "transcriptomics"[Title/Abstract] OR "bioinformatics"[Title/Abstract] OR "computational biology"[Title/Abstract] OR "machine learning"[Title/Abstract] OR "deep learning"[Title/Abstract] OR "artificial intelligence"[Title/Abstract])';
 
 type PubmedESearchResponse = {
   esearchresult?: {
@@ -40,7 +42,7 @@ export class PubmedSourceAdapter implements DailySourceAdapter {
   private readonly queryScope: string;
 
   constructor(input?: { queryScope?: string }) {
-    this.queryScope = input?.queryScope?.trim() || "all[sb]";
+    this.queryScope = input?.queryScope?.trim() || DEFAULT_PUBMED_QUERY_SCOPE;
   }
 
   async fetchCandidatesForDay(window: UtcDayWindow): Promise<DailySourceAdapterCandidate[]> {
