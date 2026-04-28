@@ -210,10 +210,7 @@ function mapPubmedRecord(record: PubmedSummaryRecord, abstractText?: string): Da
     title: sanitize(record.title),
     abstractNote: abstractText,
     publishedAt: parsePubmedDateValue(record.sortpubdate) ?? parsePubmedDateValue(record.pubdate),
-    indexedAt:
-      parsePubmedHistoryDate(historyDates.entrez) ??
-      parsePubmedHistoryDate(historyDates.pubmed) ??
-      parsePubmedHistoryDate(historyDates.medline),
+    indexedAt: resolvePubmedIndexedAt(historyDates),
     url: `https://pubmed.ncbi.nlm.nih.gov/${pmid}/`,
     doi,
     pmid,
@@ -227,6 +224,20 @@ function mapPubmedRecord(record: PubmedSummaryRecord, abstractText?: string): Da
       historyDates
     }
   };
+}
+
+function resolvePubmedIndexedAt(historyDates: {
+  entrez?: string;
+  pubmed?: string;
+  medline?: string;
+}): Date | undefined {
+  // edat-aligned PubMed runs can surface pubmed/medline on the target day while entrez
+  // remains a few minutes before UTC midnight; prefer the later indexing statuses first.
+  return (
+    parsePubmedHistoryDate(historyDates.pubmed) ??
+    parsePubmedHistoryDate(historyDates.medline) ??
+    parsePubmedHistoryDate(historyDates.entrez)
+  );
 }
 
 function extractHistoryDates(history: PubmedSummaryRecord["history"]) {

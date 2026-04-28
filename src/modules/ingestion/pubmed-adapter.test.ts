@@ -78,12 +78,72 @@ describe("PubmedSourceAdapter", () => {
     expect(records[0].doi).toBe("10.1000/pubmed");
     expect(records[0].abstractNote).toBe("Detailed abstract for candidate.");
     expect(records[0].publishedAt?.toISOString()).toBe("2026-03-08T00:00:00.000Z");
-    expect(records[0].indexedAt?.toISOString()).toBe("2026-03-07T15:32:00.000Z");
+    expect(records[0].indexedAt?.toISOString()).toBe("2026-03-07T18:40:00.000Z");
     expect(records[0].sourcePayload.historyDates).toEqual({
       entrez: "2026/03/07 15:32",
       pubmed: "2026/03/07 18:40",
       medline: "2026/03/07 18:55"
     });
+  });
+
+  it("prefers pubmed indexing time over earlier entrez history near UTC midnight", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          esearchresult: {
+            idlist: ["42045912"],
+            count: "1"
+          }
+        })
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          result: {
+            uids: ["42045912"],
+            "42045912": {
+              uid: "42045912",
+              title: "Multi-omics single-cell dissection",
+              sortpubdate: "2026/04/27 00:00",
+              pubdate: "2026 Apr 27",
+              history: [
+                {
+                  pubstatus: "medline",
+                  date: "2026/04/28 00:34"
+                },
+                {
+                  pubstatus: "pubmed",
+                  date: "2026/04/28 00:34"
+                },
+                {
+                  pubstatus: "entrez",
+                  date: "2026/04/27 23:57"
+                }
+              ]
+            }
+          }
+        })
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        text: async () =>
+          `<?xml version="1.0"?><PubmedArticleSet><PubmedArticle><MedlineCitation><PMID>42045912</PMID><Article><Abstract><AbstractText>Single-cell abstract.</AbstractText></Abstract></Article></MedlineCitation></PubmedArticle></PubmedArticleSet>`
+      } as Response);
+
+    vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
+
+    const adapter = new PubmedSourceAdapter({ queryScope: "(single-cell)" });
+    const records = await adapter.fetchCandidatesForDay({
+      runDate: new Date("2026-04-28T00:00:00Z"),
+      dayStart: new Date("2026-04-28T00:00:00Z"),
+      dayEnd: new Date("2026-04-28T23:59:59.999Z")
+    });
+
+    expect(records).toHaveLength(1);
+    expect(records[0].pmid).toBe("42045912");
+    expect(records[0].indexedAt?.toISOString()).toBe("2026-04-28T00:34:00.000Z");
   });
 
   it("supports paginated esearch and batched follow-up requests", async () => {
