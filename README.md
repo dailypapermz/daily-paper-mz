@@ -15,7 +15,7 @@ Daily literature triage MVP centered on Zotero, with two coupled pipelines:
 2. Create `.env` from `.env.example`:
    - required: `DATABASE_URL`, `ZOTERO_KEY`, `ZOTERO_ID`
    - optional: source scopes, LLM/journal integration keys, scheduler settings
-   - `PUBMED_QUERY_SCOPE` defaults to a focused genomics/omics/AI/bioinformatics query; only override it if you want broader or narrower PubMed intake
+   - `PUBMED_QUERY_SCOPE` defaults to a focused genomics/omics/regulatory-genomics query; generic AI terms are only included when paired with those domains, so override it only if you intentionally want broader PubMed intake
 3. Run schema and generate client:
    - `npm run prisma:migrate`
    - `npm run prisma:generate`

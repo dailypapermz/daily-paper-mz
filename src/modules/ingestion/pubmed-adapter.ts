@@ -9,7 +9,7 @@ const PUBMED_SUMMARY_BATCH_SIZE = 200;
 const PUBMED_ABSTRACT_BATCH_SIZE = 100;
 const REQUEST_TIMEOUT_MS = 12000;
 const DEFAULT_PUBMED_QUERY_SCOPE =
-  '("genomics"[Title/Abstract] OR "epigenomics"[Title/Abstract] OR "multi-omics"[Title/Abstract] OR "multiomics"[Title/Abstract] OR "single-cell"[Title/Abstract] OR "transcriptomics"[Title/Abstract] OR "bioinformatics"[Title/Abstract] OR "computational biology"[Title/Abstract] OR "machine learning"[Title/Abstract] OR "deep learning"[Title/Abstract] OR "artificial intelligence"[Title/Abstract])';
+  '(("genomics"[Title/Abstract] OR "genomic"[Title/Abstract] OR "epigenomics"[Title/Abstract] OR "transcriptomics"[Title/Abstract] OR "single-cell"[Title/Abstract] OR "single cell"[Title/Abstract] OR "multi-omics"[Title/Abstract] OR "multiomics"[Title/Abstract] OR "bioinformatics"[Title/Abstract] OR "computational biology"[Title/Abstract] OR "regulatory genomics"[Title/Abstract] OR "gene regulation"[Title/Abstract] OR "chromatin"[Title/Abstract] OR "rna-seq"[Title/Abstract] OR "scrna-seq"[Title/Abstract] OR "atac-seq"[Title/Abstract] OR "spatial transcriptomics"[Title/Abstract] OR "eqtl"[Title/Abstract] OR "gwas"[Title/Abstract]) OR (("machine learning"[Title/Abstract] OR "deep learning"[Title/Abstract] OR "artificial intelligence"[Title/Abstract]) AND ("genomics"[Title/Abstract] OR "epigenomics"[Title/Abstract] OR "transcriptomics"[Title/Abstract] OR "single-cell"[Title/Abstract] OR "single cell"[Title/Abstract] OR "multi-omics"[Title/Abstract] OR "multiomics"[Title/Abstract] OR "bioinformatics"[Title/Abstract] OR "computational biology"[Title/Abstract] OR "regulatory genomics"[Title/Abstract] OR "chromatin"[Title/Abstract])))';
 
 type PubmedESearchResponse = {
   esearchresult?: {
