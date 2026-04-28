@@ -49,6 +49,8 @@ class FakeZoteroRepository implements ZoteroSyncRepository {
   private runCounter = 0;
   private runs: ZoteroSyncRun[] = [];
   private latestSuccess: ZoteroSyncRun | null;
+  private collectionsUpserted = false;
+  private itemsUpserted = false;
 
   constructor(seedSuccess: ZoteroSyncRun | null = null) {
     this.latestSuccess = seedSuccess;
@@ -102,16 +104,21 @@ class FakeZoteroRepository implements ZoteroSyncRepository {
   }
 
   async upsertRawItems(items: RawZoteroItemRecord[]) {
+    this.itemsUpserted = true;
     return items.length;
   }
 
   async upsertCollections(collections: RawZoteroCollectionRecord[]) {
+    this.collectionsUpserted = true;
     return collections.length;
   }
 
   async replaceItemCollectionMappings(
     mappingByItem: Array<{ zoteroItemKey: string; zoteroCollectionKeys: string[] }>
   ) {
+    if (!this.collectionsUpserted || !this.itemsUpserted) {
+      throw new Error("Mappings were replaced before items/collections were persisted");
+    }
     return mappingByItem.reduce((acc, entry) => acc + entry.zoteroCollectionKeys.length, 0);
   }
 
@@ -199,6 +206,26 @@ describe("DefaultZoteroSyncService", () => {
     const latestRun = repository.getRuns()[repository.getRuns().length - 1];
     expect(latestRun.status).toBe("FAILED");
     expect(latestRun.errorMessage).toContain("mock client failure");
+  });
+
+  it("persists items and collections before rebuilding mappings", async () => {
+    const client = new FakeZoteroClient(
+      {
+        records: [mockItem("item-3", ["A", "B"])],
+        libraryVersion: 30
+      },
+      {
+        records: [mockCollection("A"), mockCollection("B")],
+        libraryVersion: 30
+      }
+    );
+    const repository = new FakeZoteroRepository();
+    const service = new DefaultZoteroSyncService(client, repository);
+
+    const summary = await service.runSync("full");
+
+    expect(summary.status).toBe("success");
+    expect(summary.counts.mappingsCount).toBe(2);
   });
 });
 

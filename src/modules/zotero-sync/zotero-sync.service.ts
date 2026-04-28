@@ -43,22 +43,20 @@ export class DefaultZoteroSyncService implements ZoteroSyncService {
       const rawCollections = collectionsResult.records.map(mapCollectionRecord);
       const rawItems = itemsResult.records.map(mapItemRecord);
 
-      const [collectionsCount, itemsCount, mappingsCount] = await Promise.all([
-        this.repository.upsertCollections(rawCollections, {
-          syncedAt,
-          libraryVersion: finalLibraryVersion
-        }),
-        this.repository.upsertRawItems(rawItems, {
-          syncedAt,
-          libraryVersion: finalLibraryVersion
-        }),
-        this.repository.replaceItemCollectionMappings(
-          rawItems.map((item) => ({
-            zoteroItemKey: item.zoteroItemKey,
-            zoteroCollectionKeys: item.rawCollections
-          }))
-        )
-      ]);
+      const collectionsCount = await this.repository.upsertCollections(rawCollections, {
+        syncedAt,
+        libraryVersion: finalLibraryVersion
+      });
+      const itemsCount = await this.repository.upsertRawItems(rawItems, {
+        syncedAt,
+        libraryVersion: finalLibraryVersion
+      });
+      const mappingsCount = await this.repository.replaceItemCollectionMappings(
+        rawItems.map((item) => ({
+          zoteroItemKey: item.zoteroItemKey,
+          zoteroCollectionKeys: item.rawCollections
+        }))
+      );
 
       const successRun = await this.repository.markRunSucceeded(run.id, {
         itemsCount,
