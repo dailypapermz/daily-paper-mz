@@ -3,9 +3,9 @@ import { describe, expect, it, vi } from "vitest";
 import { AppError } from "../../../lib/errors";
 import {
   computeRecallFeatures,
-  DefaultRecallRankingService,
-  tokenOverlapScore
+  DefaultRecallRankingService
 } from "./recall-ranking.service";
+import { tokenOverlapScore } from "../text-scoring";
 import type { ActiveProfileSnapshotRecord } from "./types";
 
 describe("tokenOverlapScore", () => {
@@ -43,6 +43,41 @@ describe("computeRecallFeatures", () => {
     expect(feature.semanticScore).toBeGreaterThan(0);
     expect(feature.recallScore).toBeGreaterThan(0);
     expect(feature.reasons.length).toBeGreaterThan(0);
+  });
+
+  it("boosts domain-aligned candidates over generic clinical AI titles", () => {
+    const snapshot: ActiveProfileSnapshotRecord = {
+      id: "snap-1",
+      builtAt: new Date().toISOString(),
+      representationTexts: ["single cell cross species transcriptomics genomics"],
+      contentRecallLabels: ["single-cell atlas comparative genomics"],
+      researchTypePreferences: [{ category: "method", weight: 0.8 }]
+    };
+
+    const domainFeature = computeRecallFeatures(
+      {
+        candidateId: "candidate-domain",
+        runId: "run-1",
+        title: "Single-cell transcriptomics atlas for cross-species genomics",
+        abstractNote: "Comparative genomics and cell atlas analysis",
+        sources: ["pubmed"]
+      },
+      snapshot
+    );
+
+    const noisyFeature = computeRecallFeatures(
+      {
+        candidateId: "candidate-noise",
+        runId: "run-1",
+        title: "Interpretable AI diagnostic framework for MRI-based surgical planning",
+        abstractNote: "Clinical imaging workflow for diagnosis",
+        sources: ["pubmed"]
+      },
+      snapshot
+    );
+
+    expect(domainFeature.recallScore).toBeGreaterThan(noisyFeature.recallScore);
+    expect(domainFeature.reasons).toContain("domain_topic_alignment");
   });
 });
 

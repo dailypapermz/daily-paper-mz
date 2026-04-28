@@ -1,7 +1,4 @@
 export { createRecallRankingService } from "./factory";
-export {
-  computeRecallFeatures,
-  DefaultRecallRankingService,
-  tokenOverlapScore
-} from "./recall-ranking.service";
+export { computeRecallFeatures, DefaultRecallRankingService } from "./recall-ranking.service";
+export { tokenOverlapScore } from "../text-scoring";
 export type * from "./types";

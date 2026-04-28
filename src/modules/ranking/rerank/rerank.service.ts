@@ -1,5 +1,9 @@
 import { AppError } from "../../../lib/errors";
-import { tokenOverlapScore } from "../recall/recall-ranking.service";
+import {
+  buildPreferredTopicReference,
+  computeTopicHeuristicScore
+} from "../topic-heuristics";
+import { tokenOverlapScore } from "../text-scoring";
 import type {
   RecalledCandidateRecord,
   RerankCandidateRecord,
@@ -119,6 +123,15 @@ export function computeRerankScores(input: {
   profile: RerankProfileSnapshotRecord;
 }): RerankScoreBreakdown {
   const candidateText = `${input.candidate.title ?? ""} ${input.candidate.abstractNote ?? ""}`;
+  const preferredTopicReference = buildPreferredTopicReference(
+    [
+      ...input.profile.recentCoreTexts,
+      ...input.profile.stableLongTermTexts,
+      ...input.profile.highAttentionTexts
+    ],
+    input.profile.contentRecallLabels
+  );
+  const topicHeuristic = computeTopicHeuristicScore(candidateText, preferredTopicReference);
 
   const recentCoreScore = tokenOverlapScore(candidateText, input.profile.recentCoreTexts.join(" "));
   const stableLongTermScore = tokenOverlapScore(
@@ -141,7 +154,7 @@ export function computeRerankScores(input: {
   const recencyScore = computeRecencyScore(input.candidate.publishedAt ?? input.candidate.indexedAt);
   const recallScore = clampScore(input.recalled.recallScore);
 
-  const finalScore = clampScore(
+  const baseFinalScore =
     recallScore * FEATURE_WEIGHTS.recallScore +
       recentCoreScore * FEATURE_WEIGHTS.recentCoreScore +
       stableLongTermScore * FEATURE_WEIGHTS.stableLongTermScore +
@@ -152,7 +165,10 @@ export function computeRerankScores(input: {
       sourcePriorityScore * FEATURE_WEIGHTS.sourcePriorityScore +
       journalQualityScore * FEATURE_WEIGHTS.journalQualityScore +
       userCorrectedScore * FEATURE_WEIGHTS.userCorrectedScore +
-      recencyScore * FEATURE_WEIGHTS.recencyScore
+      recencyScore * FEATURE_WEIGHTS.recencyScore;
+
+  const finalScore = clampScore(
+    baseFinalScore + topicHeuristic.score * 0.12 - topicHeuristic.penalty * 0.12
   );
 
   return {
@@ -174,9 +190,14 @@ export function computeRerankScores(input: {
       highAttentionScore,
       researchTypeScore,
       journalQualityScore,
-      userCorrectedScore
+      userCorrectedScore,
+      topicHeuristic
     }),
-    featureWeights: { ...FEATURE_WEIGHTS }
+    featureWeights: {
+      ...FEATURE_WEIGHTS,
+      topicHeuristic: 0.12,
+      genericNoisePenalty: -0.12
+    }
   };
 }
 
@@ -187,6 +208,7 @@ function buildReasons(input: {
   researchTypeScore: number;
   journalQualityScore: number;
   userCorrectedScore: number;
+  topicHeuristic: ReturnType<typeof computeTopicHeuristicScore>;
 }) {
   const reasons: string[] = [];
   if (input.recallScore >= 0.2) {
@@ -206,6 +228,12 @@ function buildReasons(input: {
   }
   if (input.userCorrectedScore >= 1) {
     reasons.push("user_corrected_signal");
+  }
+  if (input.topicHeuristic.score >= 0.18) {
+    reasons.push("domain_topic_alignment");
+  }
+  if (input.topicHeuristic.penalty >= 0.07) {
+    reasons.push("generic_clinical_noise_penalty");
   }
   if (reasons.length === 0) {
     reasons.push("baseline_rerank_score");

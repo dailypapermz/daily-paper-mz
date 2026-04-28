@@ -39,6 +39,58 @@ describe("computeRerankScores", () => {
     expect(score.reasons.length).toBeGreaterThan(0);
     expect(score.featureWeights.recallScore).toBeGreaterThan(0);
   });
+
+  it("prefers domain-aligned omics candidates over generic clinical reviews", () => {
+    const profile = {
+      id: "snap-1",
+      builtAt: new Date().toISOString(),
+      recentCoreTexts: ["single-cell transcriptomics cross-species genomics"],
+      stableLongTermTexts: ["bioinformatics regulatory genomics"],
+      highAttentionTexts: ["single-cell atlas genomic prediction"],
+      contentRecallLabels: ["cell atlas comparative genomics"],
+      researchTypePreferences: [{ category: "method" as const, weight: 1 }],
+      averageCollectionWeight: 0.8
+    };
+
+    const aligned = computeRerankScores({
+      candidate: {
+        candidateId: "candidate-domain",
+        runId: "run-1",
+        title: "Single-cell atlas enables cross-species genomic prediction",
+        abstractNote: "Bioinformatics framework for comparative genomics",
+        sources: ["pubmed"],
+        hasUserCorrectedOutput: false
+      },
+      recalled: {
+        candidateId: "candidate-domain",
+        recallScore: 0.4,
+        recallRank: 1,
+        selected: true
+      },
+      profile
+    });
+
+    const noisy = computeRerankScores({
+      candidate: {
+        candidateId: "candidate-noise",
+        runId: "run-1",
+        title: "Literature review of MRI diagnostic workflow for surgical planning",
+        abstractNote: "Clinical imaging review",
+        sources: ["pubmed"],
+        hasUserCorrectedOutput: false
+      },
+      recalled: {
+        candidateId: "candidate-noise",
+        recallScore: 0.4,
+        recallRank: 1,
+        selected: true
+      },
+      profile
+    });
+
+    expect(aligned.finalScore).toBeGreaterThan(noisy.finalScore);
+    expect(aligned.reasons).toContain("domain_topic_alignment");
+  });
 });
 
 describe("DefaultRerankService", () => {

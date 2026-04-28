@@ -1,4 +1,9 @@
 import { AppError } from "../../../lib/errors";
+import {
+  buildPreferredTopicReference,
+  computeTopicHeuristicScore
+} from "../topic-heuristics";
+import { tokenOverlapScore } from "../text-scoring";
 import type {
   ActiveProfileSnapshotRecord,
   RecallCandidateRecord,
@@ -83,8 +88,17 @@ export function computeRecallFeatures(
 ): RecallFeatureScores {
   const profileText = `${snapshot.representationTexts.join(" ")} ${snapshot.contentRecallLabels.join(" ")}`;
   const candidateText = `${candidate.title ?? ""} ${candidate.abstractNote ?? ""}`;
+  const preferredTopicReference = buildPreferredTopicReference(
+    snapshot.representationTexts,
+    snapshot.contentRecallLabels
+  );
+  const topicHeuristic = computeTopicHeuristicScore(candidateText, preferredTopicReference);
 
-  const semanticScore = tokenOverlapScore(candidateText, profileText);
+  const semanticScore = clampScore(
+    tokenOverlapScore(candidateText, profileText) * 0.72 +
+      topicHeuristic.score * 0.28 -
+      topicHeuristic.penalty
+  );
   const tagOverlapScore = tokenOverlapScore(candidate.contentRecallLabel ?? "", snapshot.contentRecallLabels.join(" "));
 
   const researchPreference = candidate.researchCategory
@@ -109,7 +123,8 @@ export function computeRecallFeatures(
     semanticScore,
     tagOverlapScore,
     researchTypeScore,
-    sourceScopeScore
+    sourceScopeScore,
+    topicHeuristic
   });
 
   return {
@@ -127,6 +142,7 @@ function buildReasons(input: {
   tagOverlapScore: number;
   researchTypeScore: number;
   sourceScopeScore: number;
+  topicHeuristic: ReturnType<typeof computeTopicHeuristicScore>;
 }) {
   const reasons: string[] = [];
   if (input.semanticScore >= 0.15) {
@@ -141,40 +157,18 @@ function buildReasons(input: {
   if (input.sourceScopeScore >= 0.7) {
     reasons.push("source_scope_priority");
   }
+  if (input.topicHeuristic.score >= 0.18) {
+    reasons.push("domain_topic_alignment");
+  }
+  if (input.topicHeuristic.penalty >= 0.07) {
+    reasons.push("generic_clinical_noise_penalty");
+  }
 
   if (reasons.length === 0) {
     reasons.push("weak_profile_match");
   }
 
   return reasons;
-}
-
-export function tokenOverlapScore(leftText: string, rightText: string): number {
-  const leftTokens = toTokenSet(leftText);
-  const rightTokens = toTokenSet(rightText);
-  if (leftTokens.size === 0 || rightTokens.size === 0) {
-    return 0;
-  }
-
-  let intersection = 0;
-  for (const token of leftTokens) {
-    if (rightTokens.has(token)) {
-      intersection += 1;
-    }
-  }
-
-  return clampScore(intersection / Math.max(leftTokens.size, rightTokens.size));
-}
-
-function toTokenSet(value: string): Set<string> {
-  const normalized = value
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}\s]/gu, " ")
-    .split(/\s+/)
-    .map((token) => token.trim())
-    .filter((token) => token.length >= 3);
-
-  return new Set(normalized);
 }
 
 function computeSourceScopeScore(
