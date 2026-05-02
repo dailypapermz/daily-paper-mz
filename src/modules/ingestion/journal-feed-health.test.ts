@@ -56,7 +56,43 @@ describe("journal feed health", () => {
     });
 
     expect(report.status).toBe("invalid_feed");
-    expect(report.errorMessage).toContain("RSS or Atom");
+    expect(report.errorMessage).toContain("supported feed or page format");
+  });
+
+  it("marks Genome Research article pages as healthy", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        url: "https://genome.cshlp.org/content/early/recent",
+        headers: new Headers({
+          "content-type": "text/html"
+        }),
+        text: async () => `
+          <html>
+            <body>
+              <article class="article-section">
+                <h5 class="title">
+                  <a href="/content/early/2026/04/16/gr.280372.124">Genealogy-based trait association</a>
+                </h5>
+                <span class="card-citation-value">April 16, 2026</span>
+              </article>
+            </body>
+          </html>`
+      } satisfies Partial<Response>)
+    );
+
+    const report = await checkJournalFeedHealth({
+      id: "feed-1",
+      journalName: "Genome Research",
+      feedUrl: "https://genome.cshlp.org/content/early/recent",
+      isActive: true
+    });
+
+    expect(report.status).toBe("healthy");
+    expect(report.itemCount).toBe(1);
+    expect(report.httpStatus).toBe(200);
   });
 
   it("checks multiple feeds in batches", async () => {

@@ -1,5 +1,5 @@
 import { fetchWithRetry } from "./http";
-import { parseFeedXml } from "./journal-feed-adapter";
+import { parseJournalFeedContent } from "./journal-feed-adapter";
 import type { JournalFeedSourceRecord } from "./types";
 
 const REQUEST_TIMEOUT_MS = 10000;
@@ -31,7 +31,8 @@ export async function checkJournalFeedHealth(
       feed.feedUrl,
       {
         headers: {
-          Accept: "application/rss+xml, application/atom+xml, application/xml, text/xml;q=0.9, */*;q=0.1",
+          Accept:
+            "application/rss+xml, application/atom+xml, application/xml, text/xml;q=0.9, text/html;q=0.8, */*;q=0.1",
           "User-Agent": "daily-paper-feed-check/1.0"
         }
       },
@@ -61,19 +62,20 @@ export async function checkJournalFeedHealth(
       };
     }
 
-    if (!isFeedDocument(text)) {
+    const candidates = parseJournalFeedContent(text, feed);
+    if (candidates.length === 0) {
       return {
         ...baseReport,
         status: "invalid_feed",
         itemCount: 0,
-        errorMessage: "Response did not contain an RSS or Atom feed"
+        errorMessage: "Response did not contain a supported feed or page format"
       };
     }
 
     return {
       ...baseReport,
       status: "healthy",
-      itemCount: parseFeedXml(text, feed).length
+      itemCount: candidates.length
     };
   } catch (error) {
     return {
@@ -106,8 +108,4 @@ export async function checkJournalFeedPoolHealth(
   }
 
   return reports;
-}
-
-function isFeedDocument(xml: string): boolean {
-  return /<(rss|feed|rdf:RDF)\b/i.test(xml);
 }

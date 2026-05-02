@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { JournalFeedSourceAdapter, parseFeedXml } from "./journal-feed-adapter";
+import {
+  JournalFeedSourceAdapter,
+  parseFeedXml,
+  parseJournalFeedContent
+} from "./journal-feed-adapter";
 
 describe("JournalFeedSourceAdapter", () => {
   afterEach(() => {
@@ -88,5 +92,43 @@ describe("JournalFeedSourceAdapter", () => {
     expect(fetchMock).toHaveBeenCalledTimes(4);
     expect(candidates).toHaveLength(1);
     expect(candidates[0].sourcePayload.feedUrl).toBe("https://example.org/working.xml");
+  });
+
+  it("parses Genome Research article pages into unified candidates", () => {
+    const html = `
+      <html>
+        <body>
+          <article class="article-section">
+            <h5 class="title">
+              <a href="/content/early/2026/04/16/gr.280372.124">Epigenetic characterization of pseudogenes across human tissues</a>
+            </h5>
+            <div class="article__authorname">
+              <ul>
+                <li>Jane Doe</li>
+                <li>John Roe</li>
+              </ul>
+            </div>
+            <span class="card-citation-value">April 15, 2026</span>
+          </article>
+        </body>
+      </html>`;
+
+    const candidates = parseJournalFeedContent(html, {
+      id: "feed-1",
+      journalName: "Genome Research",
+      feedUrl: "https://genome.cshlp.org/content/early/recent",
+      isActive: true
+    });
+
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0].externalId).toBe("/content/early/2026/04/16/gr.280372.124");
+    expect(candidates[0].title).toBe(
+      "Epigenetic characterization of pseudogenes across human tissues"
+    );
+    expect(candidates[0].url).toBe("https://genome.cshlp.org/content/early/2026/04/16/gr.280372.124");
+    expect(candidates[0].journalName).toBe("Genome Research");
+    expect(candidates[0].authors).toEqual(["Jane Doe", "John Roe"]);
+    expect(candidates[0].publishedAt?.toISOString()).toBe("2026-04-15T00:00:00.000Z");
+    expect(candidates[0].sourcePayload.parser).toBe("genome_research_page");
   });
 });
