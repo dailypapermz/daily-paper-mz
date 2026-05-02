@@ -4,11 +4,12 @@ import type { DailySourceAdapterCandidate, UtcDayWindow } from "./types";
 export function resolveUtcDayWindow(runDate?: string): UtcDayWindow {
   const parsed = runDate ? new Date(runDate) : new Date();
   const effectiveDate = Number.isNaN(parsed.getTime()) ? new Date() : parsed;
+  const targetDate = runDate ? effectiveDate : new Date(effectiveDate.getTime() - 24 * 60 * 60 * 1000);
 
   return {
-    runDate: effectiveDate,
-    dayStart: startOfUtcDay(effectiveDate),
-    dayEnd: endOfUtcDay(effectiveDate)
+    runDate: targetDate,
+    dayStart: startOfUtcDay(targetDate),
+    dayEnd: endOfUtcDay(targetDate)
   };
 }
 

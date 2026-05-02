@@ -1,4 +1,4 @@
-﻿import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   isCandidateInUtcDay,
@@ -7,11 +7,26 @@ import {
 } from "./new-today";
 
 describe("ingestion new-today helpers", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("builds UTC day window from runDate", () => {
     const window = resolveUtcDayWindow("2026-03-07T12:00:00.000Z");
 
     expect(window.dayStart.toISOString()).toBe("2026-03-07T00:00:00.000Z");
     expect(window.dayEnd.toISOString()).toBe("2026-03-07T23:59:59.999Z");
+  });
+
+  it("defaults the daily push window to the previous UTC day", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-02T10:00:00.000Z"));
+
+    const window = resolveUtcDayWindow();
+
+    expect(window.runDate.toISOString()).toBe("2026-05-01T10:00:00.000Z");
+    expect(window.dayStart.toISOString()).toBe("2026-05-01T00:00:00.000Z");
+    expect(window.dayEnd.toISOString()).toBe("2026-05-01T23:59:59.999Z");
   });
 
   it("filters candidates within the run day", () => {
