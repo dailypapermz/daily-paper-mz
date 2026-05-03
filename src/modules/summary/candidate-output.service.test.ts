@@ -52,6 +52,39 @@ describe("DefaultCandidateOutputService", () => {
     expect(result.generated).toBe(1);
     expect(result.failed).toBe(1);
     expect(repository.saveGeneratedOutput).toHaveBeenCalledTimes(1);
+    expect(repository.listCandidatesForGeneration).toHaveBeenCalledWith({
+      runId: "run-1",
+      limit: 10,
+      selectedOnly: undefined
+    });
+  });
+
+  it("forwards selectedOnly generation to the repository", async () => {
+    const repository = {
+      listCandidatesForGeneration: vi.fn().mockResolvedValue([]),
+      saveGeneratedOutput: vi.fn(),
+      saveUserCorrectedOutput: vi.fn(),
+      listRunOutputs: vi.fn().mockResolvedValue([]),
+      listRunOutputsByCandidateId: vi.fn()
+    };
+
+    const provider = {
+      name: "mock-provider",
+      generateOutput: vi.fn()
+    };
+
+    const service = new DefaultCandidateOutputService(repository, provider);
+    await service.generateForRun({
+      runId: "run-1",
+      limit: 20,
+      selectedOnly: true
+    });
+
+    expect(repository.listCandidatesForGeneration).toHaveBeenCalledWith({
+      runId: "run-1",
+      limit: 20,
+      selectedOnly: true
+    });
   });
 
   it("saves user-corrected output and returns updated record", async () => {

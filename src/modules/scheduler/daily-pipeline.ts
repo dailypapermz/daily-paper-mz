@@ -54,9 +54,9 @@ export async function runDailyRecommendationPipeline(input?: {
 
     await enrich.enrichRun(runId);
     await dedupe.runForIngestionRun(runId);
-    await summarize.generateForRun({ runId });
     await recall.runRecall({ runId });
-    await rerank.runRerank({ runId });
+    await rerank.runRerank({ runId, topN: 20 });
+    await summarize.generateForRun({ runId, limit: 20, selectedOnly: true });
 
     logger.info("Scheduler daily aggregated pipeline succeeded", {
       runId,

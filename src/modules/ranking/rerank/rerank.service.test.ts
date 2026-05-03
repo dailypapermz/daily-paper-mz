@@ -213,6 +213,60 @@ describe("DefaultRerankService", () => {
     expect(result.results[1].selected).toBe(false);
   });
 
+  it("defaults to selecting top 20 when no topN is provided", async () => {
+    const repository = {
+      getLatestSuccessfulRecallRun: vi.fn().mockResolvedValue({
+        recallRunId: "recall-1",
+        profileSnapshotId: "snap-1",
+        results: [{ candidateId: "candidate-1", recallScore: 0.6, recallRank: 1, selected: true }]
+      }),
+      getProfileSnapshot: vi.fn().mockResolvedValue({
+        id: "snap-1",
+        builtAt: new Date().toISOString(),
+        recentCoreTexts: ["single cell"],
+        stableLongTermTexts: ["omics"],
+        highAttentionTexts: ["single cell"],
+        contentRecallLabels: ["cell mapping"],
+        researchTypePreferences: [{ category: "method", weight: 1 }],
+        averageCollectionWeight: 0.7
+      }),
+      getCandidatesForRerank: vi.fn().mockResolvedValue([
+        {
+          candidateId: "candidate-1",
+          runId: "run-1",
+          title: "single cell method",
+          sources: ["journal"],
+          hasUserCorrectedOutput: false
+        }
+      ]),
+      createRerankRun: vi.fn().mockResolvedValue({ id: "rerank-1" }),
+      saveRerankResults: vi.fn(),
+      markRerankRunSucceeded: vi.fn().mockResolvedValue({
+        id: "rerank-1",
+        runId: "run-1",
+        recallRunId: "recall-1",
+        profileSnapshotId: "snap-1",
+        status: "success",
+        startedAt: new Date().toISOString(),
+        requestedTopN: 20,
+        candidateCount: 1,
+        recommendedCount: 1
+      }),
+      markRerankRunFailed: vi.fn(),
+      getLatestRerankRun: vi.fn().mockResolvedValue(null)
+    };
+
+    const service = new DefaultRerankService(repository);
+    await service.runRerank({ runId: "run-1" });
+
+    expect(repository.createRerankRun).toHaveBeenCalledWith({
+      runId: "run-1",
+      recallRunId: "recall-1",
+      profileSnapshotId: "snap-1",
+      requestedTopN: 20
+    });
+  });
+
   it("errors when no successful recall run exists", async () => {
     const service = new DefaultRerankService({
       getLatestSuccessfulRecallRun: vi.fn().mockResolvedValue(null),

@@ -68,6 +68,9 @@ describe("DefaultObsidianExportService", () => {
     expect(result.recommendationCount).toBe(1);
     expect(result.dailyNotePath).toBe(path.join(tempRoot, "Daily", "2026-04-20.md"));
     expect(result.paperNotePaths).toHaveLength(1);
+    expect(result.paperNotePaths[0]).toBe(
+      path.join(tempRoot, "Papers", "2026-04-20", "001 - A Genomics AI Paper.md")
+    );
 
     const dailyNote = await readFile(result.dailyNotePath, "utf8");
     const paperNote = await readFile(result.paperNotePaths[0], "utf8");

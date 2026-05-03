@@ -16,11 +16,16 @@ export class DefaultCandidateOutputService implements CandidateOutputService {
     private readonly provider: CandidateOutputProvider
   ) {}
 
-  async generateForRun(input: { runId: string; limit?: number }): Promise<CandidateOutputGenerationResult> {
+  async generateForRun(input: {
+    runId: string;
+    limit?: number;
+    selectedOnly?: boolean;
+  }): Promise<CandidateOutputGenerationResult> {
     const limit = input.limit && input.limit > 0 ? input.limit : 20;
     const candidates = await this.repository.listCandidatesForGeneration({
       runId: input.runId,
-      limit
+      limit,
+      selectedOnly: input.selectedOnly
     });
 
     let generated = 0;

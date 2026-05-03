@@ -32,7 +32,7 @@ export class DefaultRerankService implements RerankService {
   constructor(private readonly repository: RerankRepository) {}
 
   async runRerank(input: { runId: string; topN?: number }) {
-    const topN = input.topN && input.topN > 0 ? input.topN : 50;
+    const topN = input.topN && input.topN > 0 ? input.topN : 20;
 
     const recallRun = await this.repository.getLatestSuccessfulRecallRun(input.runId);
     if (!recallRun) {

@@ -76,9 +76,19 @@ describe("runDailyRecommendationPipeline", () => {
     expect(result.sources[0].runId).toBe("run-1");
     expect(mocks.enrichRun).toHaveBeenCalledWith("run-1");
     expect(mocks.runForIngestionRun).toHaveBeenCalledWith("run-1");
-    expect(mocks.generateForRun).toHaveBeenCalledWith({ runId: "run-1" });
     expect(mocks.runRecall).toHaveBeenCalledWith({ runId: "run-1" });
-    expect(mocks.runRerank).toHaveBeenCalledWith({ runId: "run-1" });
+    expect(mocks.runRerank).toHaveBeenCalledWith({ runId: "run-1", topN: 20 });
+    expect(mocks.generateForRun).toHaveBeenCalledWith({
+      runId: "run-1",
+      limit: 20,
+      selectedOnly: true
+    });
+    expect(mocks.runRecall.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.runRerank.mock.invocationCallOrder[0]
+    );
+    expect(mocks.runRerank.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.generateForRun.mock.invocationCallOrder[0]
+    );
   });
 
   it("preserves per-source failures from partial aggregated ingestion", async () => {

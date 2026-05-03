@@ -79,7 +79,11 @@ export interface CandidateOutputProvider {
 }
 
 export interface CandidateOutputRepository {
-  listCandidatesForGeneration(input: { runId: string; limit: number }): Promise<CandidateGenerationInputRecord[]>;
+  listCandidatesForGeneration(input: {
+    runId: string;
+    limit: number;
+    selectedOnly?: boolean;
+  }): Promise<CandidateGenerationInputRecord[]>;
   saveGeneratedOutput(input: {
     candidateId: string;
     provider: string;
@@ -96,7 +100,11 @@ export interface CandidateOutputRepository {
 }
 
 export interface CandidateOutputService {
-  generateForRun(input: { runId: string; limit?: number }): Promise<CandidateOutputGenerationResult>;
+  generateForRun(input: {
+    runId: string;
+    limit?: number;
+    selectedOnly?: boolean;
+  }): Promise<CandidateOutputGenerationResult>;
   listRunOutputs(runId: string): Promise<CandidateOutputRecord[]>;
   getCandidateOutput(candidateId: string): Promise<CandidateOutputRecord | null>;
   updateCandidateOutput(input: {

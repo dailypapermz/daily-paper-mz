@@ -10,14 +10,16 @@ import type {
 export class PrismaCandidateOutputRepository implements CandidateOutputRepository {
   constructor(private readonly db: PrismaClient) {}
 
-  async listCandidatesForGeneration(input: { runId: string; limit: number }) {
-    const rows = await this.db.dailyCanonicalCandidate.findMany({
-      where: {
-        runId: input.runId
-      },
-      orderBy: [{ mergedSourceCount: "desc" }, { createdAt: "asc" }],
-      take: input.limit
-    });
+  async listCandidatesForGeneration(input: { runId: string; limit: number; selectedOnly?: boolean }) {
+    const rows = input.selectedOnly
+      ? await this.listSelectedCandidatesForGeneration(input.runId, input.limit)
+      : await this.db.dailyCanonicalCandidate.findMany({
+          where: {
+            runId: input.runId
+          },
+          orderBy: [{ mergedSourceCount: "desc" }, { createdAt: "asc" }],
+          take: input.limit
+        });
 
     return rows.map((row) => ({
       candidateId: row.id,
@@ -29,6 +31,37 @@ export class PrismaCandidateOutputRepository implements CandidateOutputRepositor
       doi: row.doi ?? undefined,
       sourceProvenance: toSourceProvenance(row.sourceProvenanceJson)
     }));
+  }
+
+  private async listSelectedCandidatesForGeneration(runId: string, limit: number) {
+    const latestRerank = await this.db.dailyRerankRun.findFirst({
+      where: {
+        runId,
+        status: "SUCCESS"
+      },
+      orderBy: [{ startedAt: "desc" }, { createdAt: "desc" }],
+      select: {
+        id: true
+      }
+    });
+
+    if (!latestRerank) {
+      return [];
+    }
+
+    const rows = await this.db.dailyRecommendationResult.findMany({
+      where: {
+        rerankRunId: latestRerank.id,
+        selected: true
+      },
+      orderBy: [{ rank: "asc" }],
+      take: limit,
+      select: {
+        canonicalCandidate: true
+      }
+    });
+
+    return rows.map((row) => row.canonicalCandidate);
   }
 
   async saveGeneratedOutput(input: {

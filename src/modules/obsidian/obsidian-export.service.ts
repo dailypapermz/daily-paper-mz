@@ -45,13 +45,15 @@ export class DefaultObsidianExportService implements ObsidianExportService {
     await mkdir(papersDirPath, { recursive: true });
 
     const date = feed.generatedAt.slice(0, 10);
+    const datedPapersDirPath = path.join(papersDirPath, date);
+    await mkdir(datedPapersDirPath, { recursive: true });
     const dailyNotePath = path.join(dailyDirPath, `${date}.md`);
     await writeFile(dailyNotePath, renderDailyNote(feed), "utf8");
 
     const paperNotePaths: string[] = [];
     for (const recommendation of feed.recommendations) {
       const paperNotePath = path.join(
-        papersDirPath,
+        datedPapersDirPath,
         `${makePaperFileName(recommendation.rank, recommendation.title, recommendation.candidateId)}.md`
       );
       const generated = renderPaperNote({ recommendation, feed });
