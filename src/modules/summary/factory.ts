@@ -12,7 +12,8 @@ export function createCandidateOutputService(provider?: CandidateOutputProvider)
     provider ??
     createCandidateOutputProvider({
       apiKey: env.LLM_API_KEY,
-      apiBaseUrl: env.LLM_API_BASE_URL
+      apiBaseUrl: env.LLM_API_BASE_URL,
+      model: env.LLM_MODEL
     });
 
   return new DefaultCandidateOutputService(repository, resolvedProvider);

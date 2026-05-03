@@ -14,6 +14,7 @@ export type AppEnv = {
   ZOTERO_ID: string;
   LLM_API_KEY?: string;
   LLM_API_BASE_URL?: string;
+  LLM_MODEL?: string;
   EASYSCHOLAR_API_KEY?: string;
   EASYSCHOLAR_API_URL?: string;
   JOURNAL_ENRICHMENT_CACHE_TTL_HOURS: number;
@@ -65,6 +66,7 @@ export function loadEnv(rawEnv: NodeJS.ProcessEnv = process.env): AppEnv {
     ZOTERO_ID: rawEnv.ZOTERO_ID as string,
     LLM_API_KEY: rawEnv.LLM_API_KEY,
     LLM_API_BASE_URL: rawEnv.LLM_API_BASE_URL,
+    LLM_MODEL: rawEnv.LLM_MODEL,
     EASYSCHOLAR_API_KEY: rawEnv.EASYSCHOLAR_API_KEY,
     EASYSCHOLAR_API_URL: rawEnv.EASYSCHOLAR_API_URL,
     JOURNAL_ENRICHMENT_CACHE_TTL_HOURS: parsePositiveInteger(

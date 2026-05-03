@@ -103,9 +103,11 @@ export class GenericLlmCandidateOutputProvider implements CandidateOutputProvide
 export function createCandidateOutputProvider(input: {
   apiKey?: string;
   apiBaseUrl?: string;
+  model?: string;
 }): CandidateOutputProvider {
   const apiKey = input.apiKey?.trim();
   const apiBaseUrl = input.apiBaseUrl?.trim();
+  const model = input.model?.trim();
 
   if (!apiKey || !apiBaseUrl) {
     return new UnavailableCandidateOutputProvider(
@@ -115,7 +117,8 @@ export function createCandidateOutputProvider(input: {
 
   return new GenericLlmCandidateOutputProvider({
     apiKey,
-    apiBaseUrl
+    apiBaseUrl,
+    model: model || undefined
   });
 }
 
