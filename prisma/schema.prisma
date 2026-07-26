@@ -106,6 +106,25 @@ enum DailyIngestionRunStatus {
   FAILED
 }
 
+enum DailyPipelineStage {
+  INGESTION
+  ENRICHMENT
+  NORMALIZATION
+  REPRESENTATION
+  RECALL
+  RERANK
+  SUMMARY
+}
+
+enum DailyPipelineStageStatus {
+  PENDING
+  RUNNING
+  SUCCESS
+  PARTIAL
+  FAILED
+  SKIPPED
+}
+
 enum JournalEnrichmentStatus {
   ENRICHED
   NOT_FOUND
@@ -440,6 +459,8 @@ model ProfileReminderCheck {
 
 model DailyIngestionRun {
   id             String                @id @default(cuid())
+  requestKey     String?               @unique
+  attempt        Int                   @default(1)
   source         DailyIngestionRunSource
   status         DailyIngestionRunStatus @default(RUNNING)
   runDate        DateTime
@@ -454,9 +475,44 @@ model DailyIngestionRun {
   recallRuns     DailyRecallRun[]
   rerankRuns     DailyRerankRun[]
   feedbackLogs   CandidateFeedbackLog[]
+  pipelineStages DailyPipelineStageRun[]
 
   @@index([source, runDate])
   @@index([status, startedAt])
+}
+
+model SourceIngestionCursor {
+  source           CandidateSource @id
+  lastSuccessfulAt DateTime
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+}
+
+model SourceSeenItem {
+  id          String          @id @default(cuid())
+  source      CandidateSource
+  externalId  String
+  firstSeenAt DateTime        @default(now())
+
+  @@unique([source, externalId])
+  @@index([source, firstSeenAt])
+}
+
+model DailyPipelineStageRun {
+  id           String                   @id @default(cuid())
+  runId        String
+  stage        DailyPipelineStage
+  status       DailyPipelineStageStatus @default(PENDING)
+  startedAt    DateTime?
+  finishedAt   DateTime?
+  errorMessage String?
+  detailsJson  Json?
+  createdAt    DateTime                 @default(now())
+  updatedAt    DateTime                 @updatedAt
+  run          DailyIngestionRun        @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@unique([runId, stage])
+  @@index([runId, status])
 }
 
 model DailyCandidate {

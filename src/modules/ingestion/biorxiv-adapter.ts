@@ -35,8 +35,8 @@ export class BioRxivSourceAdapter implements DailySourceAdapter {
   }
 
   async fetchCandidatesForDay(window: UtcDayWindow): Promise<DailySourceAdapterCandidate[]> {
-    const fromDate = toDateOnly(window.dayStart);
-    const toDate = toDateOnly(window.dayEnd);
+    const fromDate = toDateOnly(window.sourceStart ?? window.dayStart);
+    const toDate = toDateOnly(window.sourceEnd ?? window.dayEnd);
 
     const records = await this.fetchPaginatedRecords(fromDate, toDate);
     const filteredByScope = this.filterByScope(records);
@@ -107,9 +107,10 @@ function mapBioRxivRecord(record: BioRxivApiRecord): DailySourceAdapterCandidate
   const doi = sanitizeString(record.doi);
   const version = sanitizeString(record.version);
   const publishedAt = toDate(record.date);
+  const externalId = doi ? `${doi}${version ? `v${version}` : ""}` : undefined;
 
   return {
-    externalId: doi ?? sanitizeString(record.jatsxml) ?? JSON.stringify(record),
+    externalId: externalId ?? sanitizeString(record.jatsxml) ?? JSON.stringify(record),
     title: sanitizeString(record.title),
     abstractNote: sanitizeString(record.abstract),
     publishedAt,

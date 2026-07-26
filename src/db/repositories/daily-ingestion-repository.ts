@@ -1,4 +1,4 @@
-﻿import type { Prisma, PrismaClient } from "../../generated/prisma";
+import type { Prisma, PrismaClient } from "../../generated/prisma";
 import { toIsoDate } from "../../lib/utils";
 import type {
   DailyCandidateRecord,
@@ -10,70 +10,161 @@ import type {
 } from "../../modules/ingestion/types";
 
 export class PrismaDailyIngestionRepository implements DailyIngestionRepository {
-  constructor(private readonly db: PrismaClient) {}
+  private readonly staleAfterMs: number;
+  private readonly now: () => Date;
 
-  async createRun(input: { source: DailyIngestionRunSourceValue; runDate: Date }) {
-    const run = await this.db.dailyIngestionRun.create({
-      data: {
-        source: toDbRunSource(input.source),
-        status: "RUNNING",
-        runDate: input.runDate
-      },
-      select: {
-        id: true
-      }
-    });
-
-    return { id: run.id };
+  constructor(
+    private readonly db: PrismaClient,
+    options?: { staleAfterMs?: number; now?: () => Date }
+  ) {
+    this.staleAfterMs = options?.staleAfterMs ?? 180 * 60 * 1000;
+    this.now = options?.now ?? (() => new Date());
   }
 
-  async saveCandidates(input: {
+  async acquireRun(input: {
+    source: DailyIngestionRunSourceValue;
+    runDate: Date;
+    requestKey: string;
+  }) {
+    const existing = await this.db.dailyIngestionRun.findUnique({
+      where: { requestKey: input.requestKey }
+    });
+    if (existing) return this.resolveExistingRun(existing);
+
+    try {
+      const run = await this.db.dailyIngestionRun.create({
+        data: {
+          requestKey: input.requestKey,
+          source: toDbRunSource(input.source),
+          status: "RUNNING",
+          runDate: input.runDate
+        }
+      });
+      return { run: mapRunSummary(run), disposition: "acquired" as const };
+    } catch (error) {
+      if (!isUniqueConflict(error)) throw error;
+      const winner = await this.db.dailyIngestionRun.findUnique({
+        where: { requestKey: input.requestKey }
+      });
+      if (!winner) throw error;
+      return this.resolveExistingRun(winner);
+    }
+  }
+
+  private async resolveExistingRun(existing: Parameters<typeof mapRunSummary>[0]) {
+    if (existing.status === "SUCCESS") {
+      return { run: mapRunSummary(existing), disposition: "already_succeeded" as const };
+    }
+    const now = this.now();
+    const staleBefore = new Date(now.getTime() - this.staleAfterMs);
+    const canReclaim = existing.status === "FAILED" || existing.startedAt <= staleBefore;
+    if (!canReclaim) {
+      return { run: mapRunSummary(existing), disposition: "already_running" as const };
+    }
+
+    const expectedStatus = existing.status;
+    const claimed = await this.db.$transaction(async (tx) => {
+      const updated = await tx.dailyIngestionRun.updateMany({
+        where: {
+          id: existing.id,
+          status: expectedStatus,
+          ...(expectedStatus === "RUNNING" ? { startedAt: { lte: staleBefore } } : {})
+        },
+        data: {
+          status: "RUNNING",
+          startedAt: now,
+          finishedAt: null,
+          candidatesCount: 0,
+          errorMessage: null,
+          attempt: { increment: 1 }
+        }
+      });
+      if (updated.count !== 1) return false;
+      await tx.dailyPipelineStageRun.deleteMany({ where: { runId: existing.id } });
+      await tx.candidateFeedbackLog.deleteMany({ where: { runId: existing.id } });
+      await tx.dailyRecallRun.deleteMany({ where: { runId: existing.id } });
+      await tx.dailyCanonicalCandidate.deleteMany({ where: { runId: existing.id } });
+      await tx.dailyCandidate.deleteMany({ where: { runId: existing.id } });
+      return true;
+    });
+
+    const current = await this.db.dailyIngestionRun.findUniqueOrThrow({
+      where: { id: existing.id }
+    });
+    return {
+      run: mapRunSummary(current),
+      disposition: claimed ? ("retry" as const) : dispositionForStatus(current.status)
+    };
+  }
+
+  async finalizeRunSuccess(input: {
     runId: string;
     entries: Array<{
       source: DailyCandidateSourceValue;
       candidate: DailySourceAdapterCandidate;
     }>;
+    checkpoints: Array<{
+      source: DailyCandidateSourceValue;
+      successfulAt: Date;
+      seenExternalIds?: string[];
+    }>;
   }) {
-    if (input.entries.length === 0) {
-      return 0;
-    }
-
-    await this.db.dailyCandidate.createMany({
-      data: input.entries.map((entry) => ({
-        runId: input.runId,
-        source: toDbCandidateSource(entry.source),
-        externalId: entry.candidate.externalId,
-        title: entry.candidate.title ?? null,
-        abstractNote: entry.candidate.abstractNote ?? null,
-        publishedAt: entry.candidate.publishedAt ?? null,
-        indexedAt: entry.candidate.indexedAt ?? null,
-        url: entry.candidate.url ?? null,
-        doi: entry.candidate.doi ?? null,
-        pmid: entry.candidate.pmid ?? null,
-        arxivId: entry.candidate.arxivId ?? null,
-        bioRxivId: entry.candidate.bioRxivId ?? null,
-        journalName: entry.candidate.journalName ?? null,
-        authorsJson: entry.candidate.authors as unknown as Prisma.InputJsonValue,
-        sourcePayloadJson: entry.candidate.sourcePayload as Prisma.InputJsonValue,
-        ingestedAt: new Date()
-      }))
-    });
-
-    return input.entries.length;
-  }
-
-  async markRunSucceeded(input: { runId: string; candidatesCount: number }) {
-    const run = await this.db.dailyIngestionRun.update({
-      where: { id: input.runId },
-      data: {
-        status: "SUCCESS",
-        finishedAt: new Date(),
-        candidatesCount: input.candidatesCount,
-        errorMessage: null
+    const finishedAt = this.now();
+    return this.db.$transaction(async (tx) => {
+      if (input.entries.length > 0) {
+        await tx.dailyCandidate.createMany({
+          data: input.entries.map((entry) => ({
+            runId: input.runId,
+            source: toDbCandidateSource(entry.source),
+            externalId: entry.candidate.externalId,
+            title: entry.candidate.title ?? null,
+            abstractNote: entry.candidate.abstractNote ?? null,
+            publishedAt: entry.candidate.publishedAt ?? null,
+            indexedAt: entry.candidate.indexedAt ?? null,
+            url: entry.candidate.url ?? null,
+            doi: entry.candidate.doi ?? null,
+            pmid: entry.candidate.pmid ?? null,
+            arxivId: entry.candidate.arxivId ?? null,
+            bioRxivId: entry.candidate.bioRxivId ?? null,
+            journalName: entry.candidate.journalName ?? null,
+            authorsJson: entry.candidate.authors as unknown as Prisma.InputJsonValue,
+            sourcePayloadJson: entry.candidate.sourcePayload as Prisma.InputJsonValue,
+            ingestedAt: finishedAt
+          }))
+        });
       }
-    });
 
-    return mapRunSummary(run);
+      for (const checkpoint of input.checkpoints) {
+        const source = toDbCandidateSource(checkpoint.source);
+        await tx.sourceIngestionCursor.upsert({
+          where: { source },
+          create: { source, lastSuccessfulAt: checkpoint.successfulAt },
+          update: {}
+        });
+        await tx.sourceIngestionCursor.updateMany({
+          where: { source, lastSuccessfulAt: { lt: checkpoint.successfulAt } },
+          data: { lastSuccessfulAt: checkpoint.successfulAt }
+        });
+        for (const externalId of new Set(checkpoint.seenExternalIds ?? [])) {
+          await tx.sourceSeenItem.upsert({
+            where: { source_externalId: { source, externalId } },
+            create: { source, externalId },
+            update: {}
+          });
+        }
+      }
+
+      const run = await tx.dailyIngestionRun.update({
+        where: { id: input.runId },
+        data: {
+          status: "SUCCESS",
+          finishedAt,
+          candidatesCount: input.entries.length,
+          errorMessage: null
+        }
+      });
+      return mapRunSummary(run);
+    });
   }
 
   async markRunFailed(input: { runId: string; errorMessage: string }) {
@@ -106,6 +197,11 @@ export class PrismaDailyIngestionRepository implements DailyIngestionRepository 
     return mapRunSummary(run);
   }
 
+  async getRun(runId: string) {
+    const run = await this.db.dailyIngestionRun.findUnique({ where: { id: runId } });
+    return run ? mapRunSummary(run) : null;
+  }
+
   async listCandidatesByRun(runId: string): Promise<DailyCandidateRecord[]> {
     const rows = await this.db.dailyCandidate.findMany({
       where: { runId },
@@ -131,6 +227,27 @@ export class PrismaDailyIngestionRepository implements DailyIngestionRepository 
       sourcePayload: row.sourcePayloadJson as Record<string, unknown>
     }));
   }
+
+  async getSourceCursor(source: DailyCandidateSourceValue) {
+    const cursor = await this.db.sourceIngestionCursor.findUnique({
+      where: { source: toDbCandidateSource(source) },
+      select: { lastSuccessfulAt: true }
+    });
+    return cursor?.lastSuccessfulAt;
+  }
+
+  async listSeenExternalIds(source: DailyCandidateSourceValue, externalIds: string[]) {
+    if (externalIds.length === 0) return new Set<string>();
+    const rows = await this.db.sourceSeenItem.findMany({
+      where: {
+        source: toDbCandidateSource(source),
+        externalId: { in: Array.from(new Set(externalIds)) }
+      },
+      select: { externalId: true }
+    });
+    return new Set(rows.map((row) => row.externalId));
+  }
+
 }
 
 function toDbRunSource(source: DailyIngestionRunSourceValue) {
@@ -185,6 +302,8 @@ function fromDbStatus(status: "RUNNING" | "SUCCESS" | "FAILED") {
 
 function mapRunSummary(run: {
   id: string;
+  requestKey: string | null;
+  attempt: number;
   source: "BIORXIV" | "ARXIV" | "PUBMED" | "JOURNAL" | "AGGREGATED";
   status: "RUNNING" | "SUCCESS" | "FAILED";
   runDate: Date;
@@ -195,6 +314,8 @@ function mapRunSummary(run: {
 }): DailyIngestionRunSummary {
   return {
     id: run.id,
+    requestKey: run.requestKey ?? undefined,
+    attempt: run.attempt,
     source: fromDbRunSource(run.source),
     status: fromDbStatus(run.status),
     runDate: toIsoDate(run.runDate),
@@ -203,6 +324,14 @@ function mapRunSummary(run: {
     candidatesCount: run.candidatesCount,
     errorMessage: run.errorMessage ?? undefined
   };
+}
+
+function dispositionForStatus(status: "RUNNING" | "SUCCESS" | "FAILED") {
+  return status === "SUCCESS" ? ("already_succeeded" as const) : ("already_running" as const);
+}
+
+function isUniqueConflict(error: unknown): boolean {
+  return Boolean(error && typeof error === "object" && (error as { code?: unknown }).code === "P2002");
 }
 
 function toStringArray(value: Prisma.JsonValue | null): string[] {

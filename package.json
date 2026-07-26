@@ -12,6 +12,7 @@
     "prisma:migrate": "prisma migrate dev",
     "check:env": "node scripts/check-env.mjs",
     "job:daily": "node scripts/scheduler-worker.mjs --mode=daily",
+    "job:daily:cloud": "tsx scripts/run-daily-cloud.ts",
     "job:monthly-reminder": "node scripts/scheduler-worker.mjs --mode=monthly",
     "job:scheduler-loop": "node scripts/scheduler-worker.mjs --mode=loop",
     "predev": "npm run check:env",
@@ -29,7 +30,7 @@
     "prisma:cloud:generate": "prisma generate --schema prisma/postgresql/schema.prisma",
     "prisma:cloud:migrate:deploy": "prisma migrate deploy --schema prisma/postgresql/schema.prisma",
     "prisma:generate:all": "npm run prisma:local:generate && npm run prisma:cloud:generate",
-    "test:db-contract": "npm run prisma:generate:all && node --test scripts/database-contract.test.mjs && vitest run src/db/prisma/runtime.test.ts src/db/prisma/client.test.ts src/db/repositories/postgresql-database.integration.test.ts --pool=threads",
+    "test:db-contract": "npm run prisma:generate:all && node --test scripts/database-contract.test.mjs && vitest run src/db/prisma/runtime.test.ts src/db/prisma/client.test.ts src/db/repositories/postgresql-database.integration.test.ts src/db/repositories/daily-execution-postgresql.integration.test.ts --pool=threads",
     "pretest": "npm run prisma:generate:all"
   },
   "dependencies": {
@@ -44,6 +45,7 @@
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "prisma": "^6.0.0",
+    "tsx": "^4.23.1",
     "typescript": "^5.7.0",
     "vitest": "^2.1.8"
   },

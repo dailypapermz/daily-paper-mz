@@ -8,6 +8,7 @@ describe("deployment environment contract", () => {
 
     expect(env.DEPLOYMENT_MODE).toBe("local");
     expect(env.CAPABILITIES).toEqual(getDeploymentCapabilities("local"));
+    expect(env.DAILY_RUN_STALE_AFTER_MINUTES).toBe(180);
     expect(env.CAPABILITIES).toMatchObject({
       sqlite: true,
       postgresql: false,

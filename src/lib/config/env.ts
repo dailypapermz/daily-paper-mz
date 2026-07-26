@@ -59,6 +59,7 @@ export type AppEnv = {
   SOURCE_HTTP_TIMEOUT_MS: number;
   DAILY_MIN_CANDIDATE_POOL: number;
   DAILY_ROLLING_LOOKBACK_DAYS: number;
+  DAILY_RUN_STALE_AFTER_MINUTES: number;
 };
 
 let cachedEnv: AppEnv | null = null;
@@ -161,7 +162,8 @@ export function loadEnv(rawEnv: EnvironmentInput = process.env): AppEnv {
     JOURNAL_FEED_URLS: parseList(rawEnv.JOURNAL_FEED_URLS),
     SOURCE_HTTP_TIMEOUT_MS: parsePositiveInteger(rawEnv.SOURCE_HTTP_TIMEOUT_MS, 20_000),
     DAILY_MIN_CANDIDATE_POOL: parseNonNegativeInteger(rawEnv.DAILY_MIN_CANDIDATE_POOL, 50),
-    DAILY_ROLLING_LOOKBACK_DAYS: parseNonNegativeInteger(rawEnv.DAILY_ROLLING_LOOKBACK_DAYS, 3)
+    DAILY_ROLLING_LOOKBACK_DAYS: parseNonNegativeInteger(rawEnv.DAILY_ROLLING_LOOKBACK_DAYS, 3),
+    DAILY_RUN_STALE_AFTER_MINUTES: parsePositiveInteger(rawEnv.DAILY_RUN_STALE_AFTER_MINUTES, 180)
   };
 }
 
