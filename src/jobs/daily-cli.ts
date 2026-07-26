@@ -9,6 +9,8 @@ export type DailyJobCliDependencies = {
   runPipeline(input?: { runDate?: string }): Promise<DailyPipelineRunSummary>;
   disconnect(): Promise<void>;
   writeResult(result: DailyJobCliResult): void;
+  notify?(pipeline: DailyPipelineRunSummary): Promise<void>;
+  warn?(message: string): void;
 };
 
 export function parseDailyJobArgs(args: string[]): { runDate?: string } {
@@ -48,6 +50,13 @@ export async function executeDailyJobCli(
       retryable: pipeline.retryable
     };
     dependencies.writeResult(result);
+    if (dependencies.notify) {
+      try {
+        await dependencies.notify(pipeline);
+      } catch {
+        dependencies.warn?.("Optional daily notification failed after persistence");
+      }
+    }
     return dailyJobExitCode(result);
   } catch {
     dependencies.writeResult({ status: "failed", retryable: false });

@@ -58,6 +58,33 @@ describe("daily cloud CLI contract", () => {
     expect(disconnect).toHaveBeenCalledOnce();
   });
 
+  it("keeps the persisted pipeline exit code when optional notification fails", async () => {
+    const warn = vi.fn();
+    const writeResult = vi.fn();
+    const pipeline = {
+      status: "complete" as const,
+      runId: "run-1",
+      retryable: false,
+      startedAt: "",
+      finishedAt: "",
+      sources: [],
+      stages: []
+    };
+
+    const exitCode = await executeDailyJobCli([], {
+      runPipeline: vi.fn().mockResolvedValue(pipeline),
+      notify: vi.fn().mockRejectedValue(new Error("provider output containing a secret")),
+      warn,
+      writeResult,
+      disconnect: vi.fn().mockResolvedValue(undefined)
+    });
+
+    expect(exitCode).toBe(0);
+    expect(writeResult).toHaveBeenCalledWith(expect.objectContaining({ status: "complete", runId: "run-1" }));
+    expect(warn).toHaveBeenCalledWith("Optional daily notification failed after persistence");
+    expect(JSON.stringify(warn.mock.calls)).not.toContain("provider output containing a secret");
+  });
+
   it("returns failure and disconnects after parser or pipeline exceptions", async () => {
     const writeResult = vi.fn();
     const disconnect = vi.fn().mockResolvedValue(undefined);
