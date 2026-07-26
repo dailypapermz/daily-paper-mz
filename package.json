@@ -17,7 +17,11 @@
     "predev": "npm run check:env",
     "prestart": "npm run check:env",
     "pretypecheck": "npm run prisma:generate",
-    "prebuild": "npm run prisma:generate"
+    "prebuild": "npm run prisma:generate",
+    "setup": "node scripts/setup.mjs",
+    "doctor": "node scripts/doctor.mjs",
+    "test:config": "node --test scripts/check-env.test.mjs scripts/doctor.test.mjs scripts/setup.test.mjs && vitest run src/lib/config/env.test.ts --pool=threads",
+    "prisma:migrate:deploy": "prisma migrate deploy"
   },
   "dependencies": {
     "@prisma/client": "^6.0.0",
@@ -33,5 +37,8 @@
     "prisma": "^6.0.0",
     "typescript": "^5.7.0",
     "vitest": "^2.1.8"
+  },
+  "engines": {
+    "node": ">=22 <25"
   }
 }
