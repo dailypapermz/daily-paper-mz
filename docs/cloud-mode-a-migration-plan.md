@@ -1,6 +1,6 @@
 # Cloud Mode A migration plan
 
-Status: proposed phased plan. Implementation requires explicit approval.
+Status: PR 1–PR 3 approved and implemented on the Cloud Mode A branch. PR 4 remains out of scope until separately approved.
 
 ## Guardrails
 
@@ -87,8 +87,8 @@ Goal: run the existing seven-stage pipeline on a standard Linux/Node runner.
 Likely new files:
 
 ```text
-scripts/run-daily-cloud.ts (exact name to freeze)
-.github/workflows/daily-cloud.yml
+scripts/run-daily-cloud.ts
+.github/workflows/daily.yml
 focused CLI/workflow contract tests
 ```
 
@@ -107,12 +107,10 @@ Workflow requirements:
 - protected production environment and `contents: read` only;
 - constant production concurrency group and `cancel-in-progress: false`;
 - measured timeout;
-- `prisma migrate status`, never daily `migrate dev`;
+- validate/generate the independent PostgreSQL client and run `prisma migrate deploy`, never `migrate dev`;
 - direct job execution, not `/api/jobs/daily`;
 - distinct complete/partial/failed conclusions;
 - safe retry using DB request key and stale-run recovery;
-- a whole-job deadline/budget that stops launching new LLM calls before Actions timeout;
-- measured label/summary worst-case duration and explicit duplicate-charge policy for ambiguous POST retries;
 - job summary contains counts/status/run ID only;
 - job-side WeCom/SMTP after persisted results; desktop and Obsidian disabled;
 - no raw env, connection URL, headers, LLM prompt/response, webhook, or SMTP error body in logs.
@@ -120,6 +118,8 @@ Workflow requirements:
 Add a separate profile workflow only if the user approves its cadence in the frozen scope.
 
 Rollback: disable the workflow in GitHub, retain database results, and continue Local scheduling. Re-enable only after the failed run state is reconciled.
+
+Implemented scope: the workflow directly invokes the persisted CLI, uses a 120-minute Actions timeout, and relies on database request keys/stage recovery for safe reruns. Provider-level deadline budgeting and ambiguous LLM POST charge policy remain later hardening work; they are not silently claimed by this PR.
 
 ### PR 4 — OpenNext Worker Web/API compatibility and private preview
 

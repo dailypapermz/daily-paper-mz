@@ -1,6 +1,6 @@
 # Cloud Mode A architecture
 
-Status: proposed architecture for approval. This document does not authorize implementation.
+Status: approved architecture; PR 1–PR 3 contracts are implemented. Worker deployment remains future PR 4 scope.
 
 ## Decisions made by this design
 
@@ -62,7 +62,7 @@ Cloudflare documents a 15-minute wall-time limit for Cron and CPU limits for Wor
 
 ## GitHub Actions daily workflow contract
 
-Proposed interface, not YAML implementation:
+Implemented in `.github/workflows/daily.yml`:
 
 ```text
 events:
@@ -86,9 +86,9 @@ job:
     checkout pinned major/SHA policy
     setup Node 22 with npm cache
     npm ci
-    generate PostgreSQL Prisma client
-    prisma migrate status using PostgreSQL history
     run cloud configuration preflight
+    validate and generate the PostgreSQL Prisma client
+    prisma migrate deploy using the independent PostgreSQL history
     run direct daily CLI with validated runDate
     send job-side notifications when a settled result exists
     emit non-secret status summary
@@ -96,7 +96,9 @@ job:
 
 `schedule` and `workflow_dispatch` only execute from the default branch. Scheduled runs can be delayed, especially at the top of the hour, and inactive public repositories can have schedules disabled. These are platform properties, not application failures: [GitHub workflow events](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows).
 
-The daily workflow checks migration status but does not mutate schema. A separate protected deploy workflow applies `migrate deploy` before deploying a compatible Worker. This avoids silently changing production schema every morning.
+The first Cloud Mode slice starts from an empty Neon database and explicitly runs `prisma migrate deploy` before the daily CLI. It uses only `prisma/postgresql/migrations/**` and never changes Local Mode SQLite. A later Worker deploy workflow must coordinate compatible migrations instead of adding another migration history.
+
+The template schedule is 08:15 in `Asia/Shanghai` (`cron: "15 8 * * *"` with an IANA `timezone`). Users edit both fields in their own workflow. See `docs/cloud-mode-a-github-actions.md` for setup and retry instructions.
 
 Direct database execution deliberately expands the GitHub production environment's secret scope. It is still selected for Mode A because the current pipeline is a synchronous standard-Node operation and this phase explicitly excludes the durable queue/worker needed for a safe `202 + job id` trigger. A protected Worker trigger becomes preferable only after such a background execution plane exists; calling the current synchronous route merely moves the timeout boundary and duplicates job secrets in the Worker. Mitigations for the selected design are a protected environment, least-privilege runtime database role, pinned actions, explicit permissions, no pull-request secret exposure, database lease/fencing, and audited non-secret output.
 
@@ -156,12 +158,9 @@ For a generic managed PostgreSQL target, start the spike with `@prisma/adapter-p
 
 ### Migration credentials
 
-Use two connection secrets where possible:
+The first Actions implementation uses the `DATABASE_URL` production-environment secret for both `migrate deploy` and the direct Node job. If Neon later requires distinct pooled/runtime and direct/admin URLs, split them in the deployment workflow without changing application defaults.
 
-- `CLOUD_DATABASE_URL`: pooled/runtime URL for job and Worker;
-- `CLOUD_DIRECT_DATABASE_URL`: direct/admin URL only for protected migration jobs.
-
-Do not run `prisma migrate dev` against a data-bearing database. Deploy uses the PostgreSQL schema/history explicitly. Daily execution only checks status.
+Do not run `prisma migrate dev` against a data-bearing database. The daily workflow uses the explicit PostgreSQL schema/history and only runs `migrate deploy` before source calls.
 
 ## Worker architecture
 
