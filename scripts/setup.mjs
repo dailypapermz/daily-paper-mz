@@ -81,33 +81,74 @@ export async function runSetup({
   }
 
   const mergedEnvironment = { ...fileEnv, ...environment };
-  const preflight = inspectRuntimeEnvironment(mergedEnvironment, {
-    blockUnimplementedCloud: false
-  });
+  const preflight = inspectRuntimeEnvironment(mergedEnvironment);
   const preflightErrors = preflight.checks.filter((item) => item.level === "error");
   if (preflightErrors.length > 0) {
     throw new Error(`Environment validation failed: ${preflightErrors.map((item) => item.message).join("; ")}`);
   }
 
-  if (deployment.mode !== "local") {
-    logger("Running doctor...");
-    const exitCode = await commandRunner(nodeExecutable, ["scripts/doctor.mjs"], { cwd: projectDir });
-    if (exitCode !== 0) {
-      throw new Error(`doctor failed with exit code ${exitCode}.`);
-    }
-    if (!deployment.mode) {
-      throw new Error(deployment.error);
-    }
-    throw new Error("Cloud setup is blocked until the PostgreSQL schema and migrations are implemented.");
+  if (!deployment.mode) {
+    throw new Error(deployment.error);
   }
 
-  await ensureSqliteDatabaseFile(projectDir);
+  if (deployment.mode === "local") {
+    await ensureSqliteDatabaseFile(projectDir);
+  }
 
-  const steps = [
-    { label: "prisma generate", args: ["node_modules/prisma/build/index.js", "generate"] },
-    { label: "prisma migrate deploy", args: ["node_modules/prisma/build/index.js", "migrate", "deploy"] },
-    { label: "doctor", args: ["scripts/doctor.mjs"] }
-  ];
+  const steps = deployment.mode === "cloud"
+    ? [
+        {
+          label: "prisma cloud generate",
+          args: [
+            "node_modules/prisma/build/index.js",
+            "generate",
+            "--schema",
+            "prisma/postgresql/schema.prisma"
+          ]
+        },
+        {
+          label: "prisma cloud migrate deploy",
+          args: [
+            "node_modules/prisma/build/index.js",
+            "migrate",
+            "deploy",
+            "--schema",
+            "prisma/postgresql/schema.prisma"
+          ]
+        },
+        { label: "doctor", args: ["scripts/doctor.mjs"] }
+      ]
+    : [
+        {
+          label: "prisma local generate",
+          args: [
+            "node_modules/prisma/build/index.js",
+            "generate",
+            "--schema",
+            "prisma/schema.prisma"
+          ]
+        },
+        {
+          label: "prisma cloud generate",
+          args: [
+            "node_modules/prisma/build/index.js",
+            "generate",
+            "--schema",
+            "prisma/postgresql/schema.prisma"
+          ]
+        },
+        {
+          label: "prisma local migrate deploy",
+          args: [
+            "node_modules/prisma/build/index.js",
+            "migrate",
+            "deploy",
+            "--schema",
+            "prisma/schema.prisma"
+          ]
+        },
+        { label: "doctor", args: ["scripts/doctor.mjs"] }
+      ];
 
   for (const step of steps) {
     logger(`Running ${step.label}...`);

@@ -36,8 +36,9 @@ test("setup creates .env without exposing values and runs commands in order", as
     assert.equal(await readFile(join(projectDir, ".env"), "utf8"), "DATABASE_URL=\"file:./dev.db\"\n");
     assert.equal((await readFile(join(projectDir, "prisma", "dev.db"))).length, 0);
     assert.deepEqual(commands, [
-      ["node-test", "node_modules/prisma/build/index.js", "generate"],
-      ["node-test", "node_modules/prisma/build/index.js", "migrate", "deploy"],
+      ["node-test", "node_modules/prisma/build/index.js", "generate", "--schema", "prisma/schema.prisma"],
+      ["node-test", "node_modules/prisma/build/index.js", "generate", "--schema", "prisma/postgresql/schema.prisma"],
+      ["node-test", "node_modules/prisma/build/index.js", "migrate", "deploy", "--schema", "prisma/schema.prisma"],
       ["node-test", "scripts/doctor.mjs"]
     ]);
     assert.equal(lines.some((line) => line.includes("file:./dev.db")), false);
@@ -71,16 +72,16 @@ test("setup stops after the first failed command", async () => {
         projectDir,
         commandRunner: async (command, args) => {
           commands.push([command, ...args]);
-          return commands.length === 2 ? 1 : 0;
+          return commands.length === 3 ? 1 : 0;
         },
         logger: () => {},
         nodeExecutable: "node-test",
         environment: {}
       }),
-      /prisma migrate deploy failed/
+      /prisma local migrate deploy failed/
     );
 
-    assert.equal(commands.length, 2);
+    assert.equal(commands.length, 3);
   });
 });
 
@@ -133,7 +134,7 @@ test("local setup rejects a non-SQLite URL before running Prisma", async () => {
   });
 });
 
-test("cloud setup runs doctor only and remains blocked without touching a database", async () => {
+test("cloud setup generates and migrates the PostgreSQL schema without touching SQLite", async () => {
   await withTempProject(async (projectDir) => {
     const cloudEnv = `
 DEPLOYMENT_MODE="cloud"
@@ -145,27 +146,28 @@ ZOTERO_ID="placeholder-id"
     await writeFile(join(projectDir, ".env"), cloudEnv, "utf8");
     const commands = [];
 
-    await assert.rejects(
-      runSetup({
-        projectDir,
-        commandRunner: async (command, args) => {
-          commands.push([command, ...args]);
-          return 0;
-        },
-        logger: () => {},
-        nodeExecutable: "node-test",
-        environment: {}
-      }),
-      /PostgreSQL schema and migrations are implemented/
-    );
+    await runSetup({
+      projectDir,
+      commandRunner: async (command, args) => {
+        commands.push([command, ...args]);
+        return 0;
+      },
+      logger: () => {},
+      nodeExecutable: "node-test",
+      environment: {}
+    });
 
-    assert.deepEqual(commands, [["node-test", "scripts/doctor.mjs"]]);
+    assert.deepEqual(commands, [
+      ["node-test", "node_modules/prisma/build/index.js", "generate", "--schema", "prisma/postgresql/schema.prisma"],
+      ["node-test", "node_modules/prisma/build/index.js", "migrate", "deploy", "--schema", "prisma/postgresql/schema.prisma"],
+      ["node-test", "scripts/doctor.mjs"]
+    ]);
     await assert.rejects(readFile(join(projectDir, "prisma", "dev.db")), /ENOENT/);
     assert.equal(await readFile(join(projectDir, ".env"), "utf8"), cloudEnv);
   });
 });
 
-test("injected cloud setup does not create .env or run Prisma commands", async () => {
+test("injected cloud setup preserves .env absence and stops after a failed cloud generate", async () => {
   await withTempProject(async (projectDir) => {
     const commands = [];
 
@@ -186,10 +188,16 @@ test("injected cloud setup does not create .env or run Prisma commands", async (
           ZOTERO_ID: "placeholder-id"
         }
       }),
-      /doctor failed/
+      /prisma cloud generate failed/
     );
 
-    assert.deepEqual(commands, [["node-test", "scripts/doctor.mjs"]]);
+    assert.deepEqual(commands, [[
+      "node-test",
+      "node_modules/prisma/build/index.js",
+      "generate",
+      "--schema",
+      "prisma/postgresql/schema.prisma"
+    ]]);
     await assert.rejects(readFile(join(projectDir, ".env")), /ENOENT/);
   });
 });

@@ -126,7 +126,7 @@ test("doctor accepts embedding credentials inherited from the LLM provider", asy
   });
 });
 
-test("cloud doctor accepts Linux preflight inputs but blocks the unimplemented PostgreSQL runtime", async () => {
+test("cloud doctor accepts Linux preflight inputs with the PostgreSQL contract", async () => {
   const cloudEnv = `
 DEPLOYMENT_MODE="cloud"
 DATABASE_URL="postgresql://placeholder:placeholder@example.invalid/daily_paper"
@@ -142,7 +142,7 @@ SCHEDULER_DAILY_UTC_HOUR="not-used-in-cloud"
     const report = await inspectProject({ projectDir, platform: "linux", nodeVersion: "v22.18.0", environment: {} });
     const errors = report.checks.filter((item) => item.level === "error");
 
-    assert.deepEqual(errors.map((item) => item.code), ["cloud_schema"]);
+    assert.deepEqual(errors, []);
     assert.ok(report.checks.some((item) => item.level === "ready" && item.code === "platform"));
     assert.ok(report.checks.some((item) => item.level === "ready" && item.code === "scheduler_loop"));
   });
@@ -162,8 +162,9 @@ SCHEDULER_DESKTOP_NOTIFICATION_ENABLED="true"
 
   await withTempProject(cloudEnv, async (projectDir) => {
     const report = await inspectProject({ projectDir, platform: "linux", nodeVersion: "v22.18.0", environment: {} });
-    for (const code of ["obsidian", "desktop_notification", "cloud_schema"]) {
+    for (const code of ["obsidian", "desktop_notification"]) {
       assert.ok(report.checks.some((item) => item.level === "error" && item.code === code), code);
     }
+    assert.equal(report.checks.some((item) => item.code === "cloud_schema"), false);
   });
 });

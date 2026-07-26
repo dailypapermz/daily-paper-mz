@@ -29,7 +29,7 @@ export function resolveDeploymentMode(env) {
   };
 }
 
-export function inspectRuntimeEnvironment(env, { blockUnimplementedCloud = true } = {}) {
+export function inspectRuntimeEnvironment(env) {
   const checks = [];
   const deployment = resolveDeploymentMode(env);
   if (!deployment.mode) {
@@ -93,13 +93,6 @@ export function inspectRuntimeEnvironment(env, { blockUnimplementedCloud = true 
       checks.push(result("ready", "desktop_notification", "Windows desktop notifications are disabled for cloud mode."));
     }
 
-    if (blockUnimplementedCloud) {
-      checks.push(result(
-        "error",
-        "cloud_schema",
-        "Cloud PostgreSQL schema and migrations are not implemented in PR 1; cloud runtime is blocked."
-      ));
-    }
   }
 
   return { mode, checks };

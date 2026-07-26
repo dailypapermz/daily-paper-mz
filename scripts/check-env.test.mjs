@@ -58,18 +58,18 @@ test("cloud preflight enforces PostgreSQL, Zotero web, and local capability gate
 });
 
 test("cloud missing local-only flags is disabled while a disabled Obsidian path only warns", () => {
-  const missingFlags = inspectRuntimeEnvironment(validCloudEnv, { blockUnimplementedCloud: false });
+  const missingFlags = inspectRuntimeEnvironment(validCloudEnv);
   assert.ok(missingFlags.checks.some((item) => item.level === "ready" && item.code === "desktop_notification"));
 
   const residualPath = inspectRuntimeEnvironment({
     ...validCloudEnv,
     OBSIDIAN_VAULT_PATH: "C:\\placeholder\\vault"
-  }, { blockUnimplementedCloud: false });
+  });
   assert.ok(residualPath.checks.some((item) => item.level === "warn" && item.code === "obsidian"));
   assert.equal(residualPath.checks.some((item) => item.level === "error" && item.code === "obsidian"), false);
 });
 
-test("runtime check fails cloud honestly until PostgreSQL support exists and never prints values", () => {
+test("runtime check accepts the implemented PostgreSQL contract and never prints values", () => {
   const output = [];
   const result = runCheckEnv({
     environment: validCloudEnv,
@@ -77,8 +77,8 @@ test("runtime check fails cloud honestly until PostgreSQL support exists and nev
     errorLogger: (line) => output.push(line)
   });
 
-  assert.equal(result.exitCode, 1);
-  assert.ok(result.checks.some((item) => item.level === "error" && item.code === "cloud_schema"));
+  assert.equal(result.exitCode, 0);
+  assert.equal(result.checks.some((item) => item.code === "cloud_schema"), false);
   assert.equal(output.join("\n").includes(validCloudEnv.DATABASE_URL), false);
   assert.equal(output.join("\n").includes(validCloudEnv.ZOTERO_KEY), false);
 });

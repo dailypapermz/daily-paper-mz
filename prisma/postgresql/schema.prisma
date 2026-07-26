@@ -1,0 +1,901 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../../src/generated/prisma-postgresql"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum ZoteroSyncMode {
+  FULL
+  INCREMENTAL
+}
+
+enum ZoteroSyncStatus {
+  RUNNING
+  SUCCESS
+  FAILED
+}
+
+enum CollectionPriority {
+  PRIMARY
+  SECONDARY
+  EXCLUDED
+}
+
+enum ResearchTypeCategory {
+  METHOD
+  BIOLOGY
+  RESOURCE
+  BENCHMARK
+}
+
+enum StructuredTagParseStatus {
+  PARSED
+  PARTIAL
+  INVALID_CATEGORY
+  UNPARSED
+}
+
+enum TagProvenance {
+  ORIGINAL
+  GENERATED
+}
+
+enum TagGenerationJobStatus {
+  RUNNING
+  SUCCESS
+  PARTIAL
+  FAILED
+}
+
+enum TagGenerationItemStatus {
+  GENERATED
+  SKIPPED_UNAVAILABLE
+  FAILED
+}
+
+enum ProfileSnapshotStatus {
+  ACTIVE
+  SUPERSEDED
+}
+
+enum ProfileInterestSegment {
+  RECENT_CORE
+  STABLE_LONG_TERM
+  BACKGROUND
+}
+
+enum ProfileRepresentationSource {
+  STRUCTURED_TAGS
+  TITLE_ABSTRACT
+}
+
+enum ProfileRefreshTrigger {
+  INITIAL
+  MANUAL
+  SCHEDULED
+}
+
+enum ProfileRefreshJobStatus {
+  RUNNING
+  SUCCESS
+  FAILED
+}
+
+enum CandidateSource {
+  BIORXIV
+  ARXIV
+  PUBMED
+  JOURNAL
+}
+
+enum DailyIngestionRunSource {
+  BIORXIV
+  ARXIV
+  PUBMED
+  JOURNAL
+  AGGREGATED
+}
+
+enum DailyIngestionRunStatus {
+  RUNNING
+  SUCCESS
+  FAILED
+}
+
+enum DailyPipelineStage {
+  INGESTION
+  ENRICHMENT
+  NORMALIZATION
+  REPRESENTATION
+  RECALL
+  RERANK
+  SUMMARY
+}
+
+enum DailyPipelineStageStatus {
+  PENDING
+  RUNNING
+  SUCCESS
+  PARTIAL
+  FAILED
+  SKIPPED
+}
+
+enum JournalEnrichmentStatus {
+  ENRICHED
+  NOT_FOUND
+  FAILED
+}
+
+enum CandidateMergeReason {
+  DOI
+  TITLE_URL
+  TITLE
+  SOURCE_EXTERNAL_ID
+}
+
+enum CandidateContentProvenance {
+  GENERATED
+  USER_CORRECTED
+}
+
+enum CandidateLabelType {
+  CONTENT_RECALL
+  RESEARCH_TYPE
+}
+
+enum RecallRunStatus {
+  RUNNING
+  SUCCESS
+  FAILED
+}
+
+enum RerankRunStatus {
+  RUNNING
+  SUCCESS
+  FAILED
+}
+
+enum FeedbackActionType {
+  SAVE
+  DISMISS
+  PROMOTE
+  LABEL_EDIT
+  SUMMARY_EDIT
+}
+
+enum FeedbackOrigin {
+  WEB
+  OBSIDIAN
+}
+
+enum FeedbackSignalPolarity {
+  POSITIVE
+  NEGATIVE
+  NEUTRAL
+}
+
+enum PaperIdentifierScheme {
+  DOI
+  PMID
+  ARXIV
+  BIORXIV
+  TITLE
+}
+
+model ZoteroSyncRun {
+  id               String           @id @default(cuid())
+  mode             ZoteroSyncMode
+  transport        String           @default("web")
+  transportReason  String?
+  status           ZoteroSyncStatus @default(RUNNING)
+  startedAt        DateTime         @default(now())
+  finishedAt       DateTime?
+  sinceVersion     Int?
+  libraryVersion   Int?
+  itemsCount       Int              @default(0)
+  collectionsCount Int              @default(0)
+  mappingsCount    Int              @default(0)
+  errorMessage     String?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  @@index([status, startedAt])
+}
+
+model ZoteroItemRaw {
+  id                 String                       @id @default(cuid())
+  zoteroItemKey      String                       @unique
+  zoteroVersion      Int?
+  title              String?
+  abstractNote       String?
+  dateAdded          DateTime?
+  rawTagsJson        Json?
+  rawCollectionsJson Json?
+  sourcePayloadJson  Json
+  syncedAt           DateTime
+  libraryVersion     Int?
+  createdAt          DateTime                     @default(now())
+  updatedAt          DateTime                     @updatedAt
+  itemCollections    ZoteroItemCollection[]
+  tagSignal          ZoteroItemTagSignal?
+  contentRecallTags  ZoteroItemContentRecallTag[]
+  researchTypeTags   ZoteroItemResearchTypeTag[]
+  generationJobItems ZoteroTagGenerationJobItem[]
+  profileSignals     ProfileSnapshotItemSignal[]
+
+  @@index([syncedAt])
+  @@index([libraryVersion])
+}
+
+model ZoteroCollection {
+  id                  String                             @id @default(cuid())
+  zoteroCollectionKey String                             @unique
+  zoteroVersion       Int?
+  name                String
+  parentCollectionKey String?
+  path                String?
+  sourcePayloadJson   Json
+  syncedAt            DateTime
+  libraryVersion      Int?
+  createdAt           DateTime                           @default(now())
+  updatedAt           DateTime                           @updatedAt
+  itemCollections     ZoteroItemCollection[]
+  prioritySelection   ZoteroCollectionPrioritySelection?
+  effectivePriority   ZoteroCollectionEffectivePriority?
+
+  @@index([parentCollectionKey])
+  @@index([syncedAt])
+}
+
+model ZoteroItemCollection {
+  id           String           @id @default(cuid())
+  itemId       String
+  collectionId String
+  mappedAt     DateTime         @default(now())
+  item         ZoteroItemRaw    @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  collection   ZoteroCollection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+
+  @@unique([itemId, collectionId])
+  @@index([itemId])
+  @@index([collectionId])
+}
+
+model ZoteroItemTagSignal {
+  id              String        @id @default(cuid())
+  itemId          String        @unique
+  attentionLevel  Int           @default(0)
+  rawStarTagsJson Json?
+  otherTagsJson   Json?
+  parsedAt        DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  item            ZoteroItemRaw @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@index([attentionLevel])
+}
+
+model ZoteroItemContentRecallTag {
+  id              String                   @id @default(cuid())
+  itemId          String
+  rawTag          String
+  label           String?
+  provenance      TagProvenance            @default(ORIGINAL)
+  generationJobId String?
+  parseStatus     StructuredTagParseStatus
+  createdAt       DateTime                 @default(now())
+  updatedAt       DateTime                 @updatedAt
+  item            ZoteroItemRaw            @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  generationJob   ZoteroTagGenerationJob?  @relation(fields: [generationJobId], references: [id], onDelete: SetNull)
+
+  @@unique([itemId, rawTag])
+  @@index([itemId])
+  @@index([provenance])
+  @@index([generationJobId])
+  @@index([parseStatus])
+}
+
+model ZoteroItemResearchTypeTag {
+  id               String                   @id @default(cuid())
+  itemId           String
+  rawTag           String
+  rawCategoryToken String?
+  category         ResearchTypeCategory?
+  primaryKeyword   String?
+  secondaryKeyword String?
+  provenance       TagProvenance            @default(ORIGINAL)
+  generationJobId  String?
+  parseStatus      StructuredTagParseStatus
+  createdAt        DateTime                 @default(now())
+  updatedAt        DateTime                 @updatedAt
+  item             ZoteroItemRaw            @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  generationJob    ZoteroTagGenerationJob?  @relation(fields: [generationJobId], references: [id], onDelete: SetNull)
+
+  @@unique([itemId, rawTag])
+  @@index([itemId])
+  @@index([category])
+  @@index([provenance])
+  @@index([generationJobId])
+  @@index([parseStatus])
+}
+
+model ZoteroCollectionPrioritySelection {
+  id           String             @id @default(cuid())
+  collectionId String             @unique
+  priority     CollectionPriority
+  selectedAt   DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+  collection   ZoteroCollection   @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+
+  @@index([priority])
+}
+
+model ZoteroCollectionEffectivePriority {
+  id                 String             @id @default(cuid())
+  collectionId       String             @unique
+  priority           CollectionPriority
+  isExplicitOverride Boolean
+  computedAt         DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  collection         ZoteroCollection   @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+
+  @@index([priority])
+  @@index([isExplicitOverride])
+}
+
+model ZoteroTagGenerationJob {
+  id                         String                       @id @default(cuid())
+  status                     TagGenerationJobStatus       @default(RUNNING)
+  provider                   String
+  startedAt                  DateTime                     @default(now())
+  finishedAt                 DateTime?
+  selectedItemsCount         Int                          @default(0)
+  missingItemsCount          Int                          @default(0)
+  generatedItemsCount        Int                          @default(0)
+  fallbackItemsCount         Int                          @default(0)
+  errorMessage               String?
+  createdAt                  DateTime                     @default(now())
+  updatedAt                  DateTime                     @updatedAt
+  items                      ZoteroTagGenerationJobItem[]
+  generatedContentRecallTags ZoteroItemContentRecallTag[]
+  generatedResearchTypeTags  ZoteroItemResearchTypeTag[]
+
+  @@index([status, startedAt])
+}
+
+model ZoteroTagGenerationJobItem {
+  id           String                  @id @default(cuid())
+  jobId        String
+  itemId       String
+  status       TagGenerationItemStatus
+  usedFallback Boolean                 @default(false)
+  errorMessage String?
+  createdAt    DateTime                @default(now())
+  updatedAt    DateTime                @updatedAt
+  job          ZoteroTagGenerationJob  @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  item         ZoteroItemRaw           @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@unique([jobId, itemId])
+  @@index([jobId])
+  @@index([itemId])
+  @@index([status])
+}
+
+model ProfileSnapshot {
+  id                      String                                  @id @default(cuid())
+  status                  ProfileSnapshotStatus                   @default(ACTIVE)
+  builtAt                 DateTime                                @default(now())
+  sourceLibraryVersion    Int?
+  itemsCount              Int                                     @default(0)
+  summaryJson             Json?
+  createdAt               DateTime                                @default(now())
+  updatedAt               DateTime                                @updatedAt
+  itemSignals             ProfileSnapshotItemSignal[]
+  researchTypePreferences ProfileSnapshotResearchTypePreference[]
+  refreshJobs             ProfileRefreshJob[]
+  recallRuns              DailyRecallRun[]
+  rerankRuns              DailyRerankRun[]
+  feedbackConsumptions    ProfileFeedbackConsumption[]
+  feedbackSignals         ProfileSnapshotFeedbackSignal[]
+
+  @@index([status, builtAt])
+}
+
+model ProfileFeedbackConsumption {
+  id            String               @id @default(cuid())
+  snapshotId    String
+  feedbackLogId String               @unique
+  consumedAt    DateTime             @default(now())
+  snapshot      ProfileSnapshot      @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+  feedbackLog   CandidateFeedbackLog @relation(fields: [feedbackLogId], references: [id], onDelete: Cascade)
+
+  @@index([snapshotId])
+}
+
+model ProfileSnapshotFeedbackSignal {
+  id                  String                 @id @default(cuid())
+  snapshotId          String
+  sourceFeedbackLogId String
+  candidateId         String
+  polarity            FeedbackSignalPolarity
+  weight              Float
+  representationText  String
+  researchCategory    ResearchTypeCategory?
+  createdAt           DateTime               @default(now())
+  snapshot            ProfileSnapshot        @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+
+  @@unique([snapshotId, sourceFeedbackLogId])
+  @@index([snapshotId, polarity])
+  @@index([candidateId])
+}
+
+model ProfileSnapshotItemSignal {
+  id                   String                      @id @default(cuid())
+  snapshotId           String
+  itemId               String
+  segment              ProfileInterestSegment
+  finalWeight          Float
+  collectionWeight     Float
+  attentionWeight      Float
+  recencyWeight        Float
+  representationSource ProfileRepresentationSource
+  contentRecallLabel   String?
+  researchCategory     ResearchTypeCategory?
+  representationText   String
+  createdAt            DateTime                    @default(now())
+  snapshot             ProfileSnapshot             @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+  item                 ZoteroItemRaw               @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@index([snapshotId])
+  @@index([itemId])
+  @@index([segment])
+}
+
+model ProfileSnapshotResearchTypePreference {
+  id         String               @id @default(cuid())
+  snapshotId String
+  category   ResearchTypeCategory
+  weight     Float
+  itemCount  Int
+  createdAt  DateTime             @default(now())
+  snapshot   ProfileSnapshot      @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+
+  @@unique([snapshotId, category])
+  @@index([snapshotId])
+}
+
+model ProfileRefreshJob {
+  id           String                  @id @default(cuid())
+  trigger      ProfileRefreshTrigger
+  status       ProfileRefreshJobStatus @default(RUNNING)
+  startedAt    DateTime                @default(now())
+  finishedAt   DateTime?
+  snapshotId   String?
+  errorMessage String?
+  createdAt    DateTime                @default(now())
+  updatedAt    DateTime                @updatedAt
+  snapshot     ProfileSnapshot?        @relation(fields: [snapshotId], references: [id], onDelete: SetNull)
+
+  @@index([status, startedAt])
+  @@index([trigger, startedAt])
+}
+
+model ProfileReminderCheck {
+  id            String    @id @default(cuid())
+  checkedAt     DateTime  @default(now())
+  lastRefreshAt DateTime?
+  isDue         Boolean
+  createdAt     DateTime  @default(now())
+
+  @@index([checkedAt])
+  @@index([isDue, checkedAt])
+}
+
+model DailyIngestionRun {
+  id                  String                    @id @default(cuid())
+  requestKey          String?                   @unique
+  attempt             Int                       @default(1)
+  source              DailyIngestionRunSource
+  status              DailyIngestionRunStatus   @default(RUNNING)
+  runDate             DateTime
+  startedAt           DateTime                  @default(now())
+  finishedAt          DateTime?
+  candidatesCount     Int                       @default(0)
+  errorMessage        String?
+  createdAt           DateTime                  @default(now())
+  updatedAt           DateTime                  @updatedAt
+  candidates          DailyCandidate[]
+  canonicalCandidates DailyCanonicalCandidate[]
+  recallRuns          DailyRecallRun[]
+  rerankRuns          DailyRerankRun[]
+  feedbackLogs        CandidateFeedbackLog[]
+  obsidianSyncStates  ObsidianPaperSyncState[]
+  pipelineStages      DailyPipelineStageRun[]
+
+  @@index([source, runDate])
+  @@index([status, startedAt])
+}
+
+model SourceIngestionCursor {
+  source           CandidateSource @id
+  lastSuccessfulAt DateTime
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+}
+
+model SourceSeenItem {
+  id          String          @id @default(cuid())
+  source      CandidateSource
+  externalId  String
+  firstSeenAt DateTime        @default(now())
+
+  @@unique([source, externalId])
+  @@index([source, firstSeenAt])
+}
+
+model DailyPipelineStageRun {
+  id           String                   @id @default(cuid())
+  runId        String
+  stage        DailyPipelineStage
+  status       DailyPipelineStageStatus @default(PENDING)
+  startedAt    DateTime?
+  finishedAt   DateTime?
+  errorMessage String?
+  detailsJson  Json?
+  createdAt    DateTime                 @default(now())
+  updatedAt    DateTime                 @updatedAt
+  run          DailyIngestionRun        @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@unique([runId, stage])
+  @@index([runId, status])
+}
+
+model DailyCandidate {
+  id                  String                             @id @default(cuid())
+  runId               String
+  source              CandidateSource
+  externalId          String
+  title               String?
+  abstractNote        String?
+  publishedAt         DateTime?
+  indexedAt           DateTime?
+  url                 String?
+  doi                 String?
+  pmid                String?
+  arxivId             String?
+  bioRxivId           String?
+  journalName         String?
+  authorsJson         Json?
+  sourcePayloadJson   Json
+  ingestedAt          DateTime                           @default(now())
+  createdAt           DateTime                           @default(now())
+  updatedAt           DateTime                           @updatedAt
+  run                 DailyIngestionRun                  @relation(fields: [runId], references: [id], onDelete: Cascade)
+  journalEnrichment   DailyCandidateJournalEnrichment?
+  canonicalProvenance DailyCanonicalCandidateProvenance?
+
+  @@unique([runId, source, externalId])
+  @@index([runId])
+  @@index([source, publishedAt])
+  @@index([source, indexedAt])
+  @@index([doi])
+  @@index([pmid])
+  @@index([arxivId])
+  @@index([bioRxivId])
+}
+
+model DailyCanonicalCandidate {
+  id                    String                              @id @default(cuid())
+  runId                 String
+  canonicalKey          String
+  title                 String?
+  abstractNote          String?
+  publishedAt           DateTime?
+  indexedAt             DateTime?
+  url                   String?
+  doi                   String?
+  pmid                  String?
+  arxivId               String?
+  bioRxivId             String?
+  journalName           String?
+  authorsJson           Json?
+  mergedSourceCount     Int                                 @default(1)
+  sourceProvenanceJson  Json
+  contentHash           String                              @default("")
+  globalPaperId         String?
+  createdAt             DateTime                            @default(now())
+  updatedAt             DateTime                            @updatedAt
+  run                   DailyIngestionRun                   @relation(fields: [runId], references: [id], onDelete: Cascade)
+  provenances           DailyCanonicalCandidateProvenance[]
+  summary               DailyCandidateSummary?
+  labels                DailyCandidateStructuredLabel[]
+  recallResults         DailyRecallResult[]
+  recommendationResults DailyRecommendationResult[]
+  feedbackLogs          CandidateFeedbackLog[]
+  obsidianSyncState     ObsidianPaperSyncState?
+  globalPaper           GlobalPaper?                        @relation(fields: [globalPaperId], references: [id], onDelete: SetNull)
+
+  @@unique([runId, canonicalKey])
+  @@index([runId])
+  @@index([doi])
+  @@index([contentHash])
+  @@index([globalPaperId])
+}
+
+model GlobalPaper {
+  id          String                  @id @default(cuid())
+  identityKey String                  @unique
+  title       String?
+  firstSeenAt DateTime                @default(now())
+  lastSeenAt  DateTime                @default(now())
+  createdAt   DateTime                @default(now())
+  updatedAt   DateTime                @updatedAt
+  identifiers GlobalPaperIdentifier[]
+  candidates  DailyCanonicalCandidate[]
+}
+
+model GlobalPaperIdentifier {
+  id        String                @id @default(cuid())
+  paperId   String
+  scheme    PaperIdentifierScheme
+  value     String
+  createdAt DateTime              @default(now())
+  paper     GlobalPaper           @relation(fields: [paperId], references: [id], onDelete: Cascade)
+
+  @@unique([scheme, value])
+  @@index([paperId])
+}
+
+model TextEmbeddingCache {
+  id         String   @id @default(cuid())
+  model      String
+  textHash   String
+  vectorJson Json
+  dimensions Int
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([model, textHash])
+}
+
+model DailyCanonicalCandidateProvenance {
+  id                   String                  @id @default(cuid())
+  canonicalCandidateId String
+  sourceCandidateId    String                  @unique
+  source               CandidateSource
+  externalId           String
+  mergeReason          CandidateMergeReason
+  createdAt            DateTime                @default(now())
+  canonicalCandidate   DailyCanonicalCandidate @relation(fields: [canonicalCandidateId], references: [id], onDelete: Cascade)
+  sourceCandidate      DailyCandidate          @relation(fields: [sourceCandidateId], references: [id], onDelete: Cascade)
+
+  @@index([canonicalCandidateId])
+  @@index([source, mergeReason])
+}
+
+model DailyCandidateSummary {
+  id                   String                     @id @default(cuid())
+  canonicalCandidateId String                     @unique
+  researchQuestion     String
+  method               String
+  mainFinding          String
+  relevanceToUser      String
+  provenance           CandidateContentProvenance @default(GENERATED)
+  provider             String
+  createdAt            DateTime                   @default(now())
+  updatedAt            DateTime                   @updatedAt
+  canonicalCandidate   DailyCanonicalCandidate    @relation(fields: [canonicalCandidateId], references: [id], onDelete: Cascade)
+
+  @@index([provenance])
+}
+
+model DailyCandidateStructuredLabel {
+  id                   String                     @id @default(cuid())
+  canonicalCandidateId String
+  labelType            CandidateLabelType
+  contentRecallLabel   String?
+  researchCategory     ResearchTypeCategory?
+  primaryKeyword       String?
+  secondaryKeyword     String?
+  rawLabelText         String?
+  provenance           CandidateContentProvenance @default(GENERATED)
+  provider             String
+  createdAt            DateTime                   @default(now())
+  updatedAt            DateTime                   @updatedAt
+  canonicalCandidate   DailyCanonicalCandidate    @relation(fields: [canonicalCandidateId], references: [id], onDelete: Cascade)
+
+  @@unique([canonicalCandidateId, labelType])
+  @@index([canonicalCandidateId])
+  @@index([provenance, labelType])
+}
+
+model DailyRecallRun {
+  id                String              @id @default(cuid())
+  runId             String
+  profileSnapshotId String
+  status            RecallRunStatus     @default(RUNNING)
+  startedAt         DateTime            @default(now())
+  finishedAt        DateTime?
+  requestedTopN     Int
+  candidateCount    Int                 @default(0)
+  recalledCount     Int                 @default(0)
+  errorMessage      String?
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  run               DailyIngestionRun   @relation(fields: [runId], references: [id], onDelete: Cascade)
+  profileSnapshot   ProfileSnapshot     @relation(fields: [profileSnapshotId], references: [id], onDelete: Cascade)
+  results           DailyRecallResult[]
+  rerankRuns        DailyRerankRun[]
+
+  @@index([runId, startedAt])
+  @@index([status, startedAt])
+}
+
+model DailyRecallResult {
+  id                   String                  @id @default(cuid())
+  recallRunId          String
+  canonicalCandidateId String
+  rank                 Int
+  selected             Boolean                 @default(true)
+  recallScore          Float
+  retrievalScore       Float                   @map("semanticScore")
+  denseSimilarityScore Float                   @default(0)
+  feedbackAdjustment   Float                   @default(0)
+  tagOverlapScore      Float
+  researchTypeScore    Float
+  sourceScopeScore     Float
+  reasonsJson          Json
+  createdAt            DateTime                @default(now())
+  recallRun            DailyRecallRun          @relation(fields: [recallRunId], references: [id], onDelete: Cascade)
+  canonicalCandidate   DailyCanonicalCandidate @relation(fields: [canonicalCandidateId], references: [id], onDelete: Cascade)
+
+  @@unique([recallRunId, canonicalCandidateId])
+  @@index([recallRunId, rank])
+  @@index([selected, recallScore])
+}
+
+model DailyRerankRun {
+  id                String                      @id @default(cuid())
+  runId             String
+  recallRunId       String
+  profileSnapshotId String
+  status            RerankRunStatus             @default(RUNNING)
+  startedAt         DateTime                    @default(now())
+  finishedAt        DateTime?
+  requestedTopN     Int
+  candidateCount    Int                         @default(0)
+  recommendedCount  Int                         @default(0)
+  errorMessage      String?
+  createdAt         DateTime                    @default(now())
+  updatedAt         DateTime                    @updatedAt
+  run               DailyIngestionRun           @relation(fields: [runId], references: [id], onDelete: Cascade)
+  recallRun         DailyRecallRun              @relation(fields: [recallRunId], references: [id], onDelete: Cascade)
+  profileSnapshot   ProfileSnapshot             @relation(fields: [profileSnapshotId], references: [id], onDelete: Cascade)
+  results           DailyRecommendationResult[]
+
+  @@index([runId, startedAt])
+  @@index([status, startedAt])
+}
+
+model DailyRecommendationResult {
+  id                      String                  @id @default(cuid())
+  rerankRunId             String
+  canonicalCandidateId    String
+  rank                    Int
+  selected                Boolean                 @default(true)
+  finalScore              Float
+  rawScore                Float                   @default(0)
+  percentile              Float                   @default(0)
+  featureCoverage         Float                   @default(0)
+  recallScore             Float
+  recentCoreScore         Float
+  stableLongTermScore     Float
+  highAttentionScore      Float
+  contentTagScore         Float
+  researchTypeScore       Float
+  collectionWeightScore   Float
+  sourcePriorityScore     Float
+  journalQualityScore     Float
+  userCorrectedScore      Float
+  recencyScore            Float
+  reasonsJson             Json
+  featureWeightsJson      Json
+  featureAvailabilityJson Json                    @default(dbgenerated("'{}'"))
+  createdAt               DateTime                @default(now())
+  rerankRun               DailyRerankRun          @relation(fields: [rerankRunId], references: [id], onDelete: Cascade)
+  canonicalCandidate      DailyCanonicalCandidate @relation(fields: [canonicalCandidateId], references: [id], onDelete: Cascade)
+
+  @@unique([rerankRunId, canonicalCandidateId])
+  @@index([rerankRunId, rank])
+  @@index([selected, finalScore])
+}
+
+model CandidateFeedbackLog {
+  id               String                      @id @default(cuid())
+  runId            String
+  candidateId      String
+  actionType       FeedbackActionType
+  origin           FeedbackOrigin              @default(WEB)
+  externalEventKey String?                     @unique
+  oldValueJson     Json?
+  newValueJson     Json?
+  metadataJson     Json?
+  createdAt        DateTime                    @default(now())
+  run              DailyIngestionRun           @relation(fields: [runId], references: [id], onDelete: Cascade)
+  candidate        DailyCanonicalCandidate     @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  consumption      ProfileFeedbackConsumption?
+
+  @@index([runId, createdAt])
+  @@index([candidateId, actionType, createdAt])
+  @@index([origin, createdAt])
+}
+
+model ObsidianPaperSyncState {
+  id            String                  @id @default(cuid())
+  candidateId   String                  @unique
+  runId         String
+  notePath      String                  @unique
+  status        String                  @default("unread")
+  desiredStatus String?
+  revision      Int                     @default(0)
+  fileMtime     DateTime?
+  lastSyncedAt  DateTime                @default(now())
+  createdAt     DateTime                @default(now())
+  updatedAt     DateTime                @updatedAt
+  candidate     DailyCanonicalCandidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  run           DailyIngestionRun       @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@index([runId, status])
+  @@index([lastSyncedAt])
+}
+
+model JournalFeedSource {
+  id          String   @id @default(cuid())
+  journalName String
+  feedUrl     String   @unique
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([journalName])
+  @@index([isActive])
+}
+
+model JournalEnrichmentCache {
+  id             String   @id @default(cuid())
+  journalName    String
+  provider       String
+  quartile       String?
+  impactScore    Float?
+  rawPayloadJson Json?
+  normalizedJson Json?
+  fetchedAt      DateTime @default(now())
+  expiresAt      DateTime
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([journalName, provider])
+  @@index([provider, expiresAt])
+}
+
+model DailyCandidateJournalEnrichment {
+  id             String                  @id @default(cuid())
+  candidateId    String                  @unique
+  provider       String
+  status         JournalEnrichmentStatus
+  quartile       String?
+  impactScore    Float?
+  rawPayloadJson Json?
+  normalizedJson Json?
+  errorMessage   String?
+  enrichedAt     DateTime                @default(now())
+  createdAt      DateTime                @default(now())
+  updatedAt      DateTime                @updatedAt
+  candidate      DailyCandidate          @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+
+  @@index([provider, status])
+  @@index([enrichedAt])
+}
