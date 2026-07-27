@@ -1,13 +1,28 @@
-import { prisma } from "../../db/prisma/client";
+import { getApplicationPrismaClient } from "../../db/prisma/application-client";
 import { PrismaCandidateOutputRepository } from "../../db/repositories/candidate-output-repository";
 import { getEnv } from "../../lib/config";
-import { createCandidateOutputProvider } from "./candidate-output.provider";
+import {
+  createCandidateOutputProvider,
+  UnavailableCandidateOutputProvider
+} from "./candidate-output.provider";
 import { DefaultCandidateOutputService } from "./candidate-output.service";
 import type { CandidateOutputProvider } from "./types";
 
-export function createCandidateOutputService(provider?: CandidateOutputProvider) {
-  const env = getEnv();
+export function createCandidateOutputService(
+  provider?: CandidateOutputProvider,
+  options: { allowGeneration?: boolean } = {}
+) {
+  const prisma = getApplicationPrismaClient();
   const repository = new PrismaCandidateOutputRepository(prisma);
+  if (options.allowGeneration === false) {
+    return new DefaultCandidateOutputService(
+      repository,
+      provider ?? new UnavailableCandidateOutputProvider("Generation is not available in this runtime."),
+      { concurrency: 1, labelCandidateLimit: 1 }
+    );
+  }
+
+  const env = getEnv();
   const resolvedProvider =
     provider ??
     createCandidateOutputProvider({

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { AppError } from "../../../../lib/errors";
+import { appErrorResponse, rejectCloudCapability } from "../../../../lib/http/cloud-boundary";
 import { createRerankService } from "../../../../modules/ranking/rerank";
 
 type RerankRequestBody = {
@@ -38,6 +39,8 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
+    const unavailable = rejectCloudCapability("rerank_execution");
+    if (unavailable) return unavailable;
     const body = (await request.json().catch(() => ({}))) as RerankRequestBody;
     const runId = body.runId?.trim();
 
@@ -69,15 +72,7 @@ export async function POST(request: Request) {
 
 function toErrorResponse(error: unknown) {
   if (error instanceof AppError) {
-    return NextResponse.json(
-      {
-        status: "error",
-        code: error.code,
-        message: error.message,
-        details: error.details
-      },
-      { status: error.statusCode }
-    );
+    return appErrorResponse(error);
   }
 
   return NextResponse.json(

@@ -2,12 +2,15 @@ import { NextResponse } from "next/server";
 
 import { EnvValidationError } from "../../../../lib/config";
 import { AppError } from "../../../../lib/errors";
-import { runMvpIntegrationFlow, type RunMvpFlowInput } from "../../../../modules/scheduler";
+import { rejectCloudCapability } from "../../../../lib/http/cloud-boundary";
+import type { RunMvpFlowInput } from "../../../../modules/scheduler";
 
 type MvpFlowRequestBody = RunMvpFlowInput;
 
 export async function POST(request: Request) {
   try {
+    const unavailable = rejectCloudCapability("mvp_pipeline");
+    if (unavailable) return unavailable;
     const body = (await request.json().catch(() => ({}))) as MvpFlowRequestBody;
 
     if (body.syncMode && body.syncMode !== "full" && body.syncMode !== "incremental") {
@@ -32,6 +35,7 @@ export async function POST(request: Request) {
       );
     }
 
+    const { runMvpIntegrationFlow } = await import("../../../../modules/scheduler");
     const result = await runMvpIntegrationFlow(body);
 
     return NextResponse.json({
