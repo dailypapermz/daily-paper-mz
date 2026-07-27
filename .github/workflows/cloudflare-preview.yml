@@ -62,7 +62,7 @@ jobs:
           npx wrangler dev --local --port 8787 > "$RUNNER_TEMP/workerd.log" 2>&1 &
           workerd_pid=$!
           trap 'kill "$workerd_pid" 2>/dev/null || true; wait "$workerd_pid" 2>/dev/null || true' EXIT
-          BASE_URL=http://127.0.0.1:8787 node scripts/cloudflare-preview-smoke.mjs
+          BASE_URL=http://localhost:8787 node scripts/cloudflare-preview-smoke.mjs
 
       - name: Upload workerd log on failure
         if: failure()
