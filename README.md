@@ -96,6 +96,8 @@ Setup summary:
 
 The workflow validates/generates the PostgreSQL client, applies the independent cloud migration history, and then invokes the existing `job:daily:cloud` CLI. Notification settings are optional; failures do not roll back persisted results. See [Cloud Mode A GitHub Actions runbook](docs/cloud-mode-a-github-actions.md) for the full Secrets/Variables, schedule, retry, and exit-code contract.
 
+An empty Cloud Mode database must build its low-frequency profile before recall can succeed. Run the separate **Cloud profile maintenance** workflow with `operation=sync`, use the Access-protected `/collections` page to select at least one primary or secondary collection, and then run the workflow again with `operation=refresh`. This workflow is manual-only and does not run the daily pipeline.
+
 ## Validation Commands
 - tests: `npm run test`
 - typecheck: `npm run typecheck`
