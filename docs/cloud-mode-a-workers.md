@@ -51,6 +51,8 @@ npm run cf:preview
 
 Then verify `/api/health/live`, Access-protected `/api/health/ready`, recommendation reads, a feedback write, a second sequential request, and rollback before approving production deployment.
 
+The repository also includes `.github/workflows/cloudflare-preview.yml`. It builds the OpenNext artifact on `ubuntu-latest`, launches local workerd, and verifies liveness, sanitized readiness failure, Cloud-disabled job routes, wrong-origin rejection, JSON-only writes, and the request-size limit without loading production Secrets. This resolves the native Windows `workerd` gap once its GitHub check passes; database-backed production acceptance remains separate.
+
 ## Cloudflare configuration
 
 1. Create a Worker deployment using this repository and `wrangler.jsonc`.

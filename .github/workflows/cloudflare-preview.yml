@@ -1,0 +1,74 @@
+name: Cloudflare Worker preview contract
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/cloudflare-preview.yml"
+      - "open-next.config.ts"
+      - "wrangler.jsonc"
+      - "next.config.ts"
+      - "prisma/postgresql/schema.prisma"
+      - "scripts/cloudflare-preview-smoke.mjs"
+      - "scripts/run-opennext.mjs"
+      - "src/app/**"
+      - "src/db/**"
+      - "src/lib/http/**"
+      - "package.json"
+      - "package-lock.json"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: daily-paper-workerd-preview-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  preview:
+    name: Build and smoke-test workerd on Linux
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      DEPLOYMENT_MODE: cloud
+      DAILY_PAPER_RUNTIME_TARGET: cloudflare
+      NEXT_PUBLIC_DEPLOYMENT_MODE: cloud
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Validate Worker contracts
+        run: npm run test:cloudflare
+
+      - name: Build OpenNext Worker
+        run: npm run cf:build
+
+      - name: Start workerd and run HTTP smoke tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx wrangler dev --local --port 8787 > "$RUNNER_TEMP/workerd.log" 2>&1 &
+          workerd_pid=$!
+          trap 'kill "$workerd_pid" 2>/dev/null || true; wait "$workerd_pid" 2>/dev/null || true' EXIT
+          BASE_URL=http://127.0.0.1:8787 node scripts/cloudflare-preview-smoke.mjs
+
+      - name: Upload workerd log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: workerd-preview-log
+          path: ${{ runner.temp }}/workerd.log
+          if-no-files-found: ignore
+          retention-days: 7

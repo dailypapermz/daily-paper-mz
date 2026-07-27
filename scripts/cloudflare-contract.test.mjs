@@ -15,6 +15,14 @@ const postgresSchema = await readFile(
   new URL("../prisma/postgresql/schema.prisma", import.meta.url),
   "utf8"
 );
+const previewWorkflow = await readFile(
+  new URL("../.github/workflows/cloudflare-preview.yml", import.meta.url),
+  "utf8"
+);
+const previewSmoke = await readFile(
+  new URL("./cloudflare-preview-smoke.mjs", import.meta.url),
+  "utf8"
+);
 
 test("Cloudflare scripts preserve the existing local commands", () => {
   assert.equal(packageJson.scripts.dev, "next dev");
@@ -98,4 +106,17 @@ test("an existing OpenNext artifact contains no native Prisma engine", async (co
 test("OpenNext uses the Cloudflare adapter without Pages", () => {
   assert.match(openNext, /defineCloudflareConfig/);
   assert.doesNotMatch(openNext + wrangler, /next-on-pages|Cloudflare Pages/i);
+});
+
+test("Linux workerd preview is exercised without production secrets", () => {
+  assert.match(previewWorkflow, /runs-on: ubuntu-latest/);
+  assert.match(previewWorkflow, /node-version: 22/);
+  assert.match(previewWorkflow, /npm run cf:build/);
+  assert.match(previewWorkflow, /wrangler dev --local --port 8787/);
+  assert.match(previewWorkflow, /cloudflare-preview-smoke\.mjs/);
+  assert.doesNotMatch(previewWorkflow, /secrets\.|DATABASE_URL/);
+  assert.match(previewSmoke, /CAPABILITY_UNAVAILABLE_IN_CLOUD/);
+  assert.match(previewSmoke, /UNSUPPORTED_MEDIA_TYPE/);
+  assert.match(previewSmoke, /ORIGIN_MISMATCH/);
+  assert.match(previewSmoke, /PAYLOAD_TOO_LARGE/);
 });
