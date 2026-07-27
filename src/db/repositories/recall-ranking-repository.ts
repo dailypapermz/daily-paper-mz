@@ -128,7 +128,7 @@ export class PrismaRecallRankingRepository implements RecallRankingRepository {
           }
         });
       }
-    });
+    }, { timeout: 60_000 });
   }
 
   async markRecallRunSucceeded(input: {

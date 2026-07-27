@@ -197,7 +197,7 @@ export class PrismaRerankRepository implements RerankRepository {
           }
         });
       }
-    });
+    }, { timeout: 60_000 });
   }
 
   async markRerankRunSucceeded(input: {
