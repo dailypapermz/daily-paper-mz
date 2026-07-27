@@ -42,6 +42,7 @@ test("Wrangler targets a protected OpenNext Worker", () => {
   assert.match(wrangler, /"nodejs_compat"/);
   assert.match(wrangler, /"workers_dev"\s*:\s*true/);
   assert.match(wrangler, /"preview_urls"\s*:\s*false/);
+  assert.match(wrangler, /"run_worker_first"\s*:\s*true/);
   assert.match(wrangler, /"DEPLOYMENT_MODE"\s*:\s*"cloud"/);
   assert.match(wrangler, /"NEXT_PUBLIC_DEPLOYMENT_MODE"\s*:\s*"cloud"/);
   assert.doesNotMatch(wrangler, /DATABASE_URL|ZOTERO_KEY|LLM_API_KEY|@126\.com/);
@@ -125,7 +126,7 @@ test("Linux workerd preview is exercised without production secrets", () => {
 });
 
 test("Cloud dashboard and APIs validate Access JWTs in the Worker", async () => {
-  const middleware = await readFile(new URL("../middleware.ts", import.meta.url), "utf8");
+  const middleware = await readFile(new URL("../src/middleware.ts", import.meta.url), "utf8");
   const verifier = await readFile(
     new URL("../src/lib/http/cloudflare-access.ts", import.meta.url),
     "utf8"

@@ -9,7 +9,7 @@
   "assets": {
     "directory": ".open-next/assets",
     "binding": "ASSETS",
-    "run_worker_first": ["/api/*"]
+    "run_worker_first": true
   },
   "vars": {
     "DEPLOYMENT_MODE": "cloud",
