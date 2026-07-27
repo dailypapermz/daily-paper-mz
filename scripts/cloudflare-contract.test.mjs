@@ -1,0 +1,101 @@
+import assert from "node:assert/strict";
+import { existsSync } from "node:fs";
+import { readFile } from "node:fs/promises";
+import test from "node:test";
+
+const packageJson = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
+const wrangler = await readFile(new URL("../wrangler.jsonc", import.meta.url), "utf8");
+const openNext = await readFile(new URL("../open-next.config.ts", import.meta.url), "utf8");
+const nextConfig = await readFile(new URL("../next.config.ts", import.meta.url), "utf8");
+const typegenRunner = await readFile(
+  new URL("./run-cloudflare-typegen.mjs", import.meta.url),
+  "utf8"
+);
+const postgresSchema = await readFile(
+  new URL("../prisma/postgresql/schema.prisma", import.meta.url),
+  "utf8"
+);
+
+test("Cloudflare scripts preserve the existing local commands", () => {
+  assert.equal(packageJson.scripts.dev, "next dev");
+  assert.equal(packageJson.scripts.build, "node scripts/build.mjs");
+  assert.equal(packageJson.scripts["cf:build"], "node scripts/run-opennext.mjs build");
+  assert.match(packageJson.scripts["cf:preview"], /run-opennext\.mjs preview/);
+  assert.match(packageJson.scripts["cf:deploy"], /--keep-vars/);
+  assert.match(packageJson.scripts["cf:typegen"], /run-cloudflare-typegen\.mjs/);
+  assert.match(typegenRunner, /wranglerCli/);
+  assert.match(typegenRunner, /"types"/);
+  assert.match(packageJson.scripts["prisma:worker:generate"], /workerClient/);
+});
+
+test("Wrangler targets a protected OpenNext Worker", () => {
+  assert.match(wrangler, /"main"\s*:\s*"\.open-next\/worker\.js"/);
+  assert.match(wrangler, /"nodejs_compat"/);
+  assert.match(wrangler, /"workers_dev"\s*:\s*false/);
+  assert.match(wrangler, /"preview_urls"\s*:\s*false/);
+  assert.match(wrangler, /"DEPLOYMENT_MODE"\s*:\s*"cloud"/);
+  assert.match(wrangler, /"NEXT_PUBLIC_DEPLOYMENT_MODE"\s*:\s*"cloud"/);
+  assert.doesNotMatch(wrangler, /DATABASE_URL|ZOTERO_KEY|LLM_API_KEY|@126\.com/);
+});
+
+test("Worker build selects the Rust-free Neon client without replacing Node clients", () => {
+  assert.match(postgresSchema, /generator workerClient[\s\S]*engineType\s*=\s*"client"/);
+  assert.match(nextConfig, /edge-application-client\.ts/);
+  assert.match(nextConfig, /edge-application-json\.ts/);
+  assert.equal(packageJson.scripts["prisma:cloud:generate"].includes("--generator client"), true);
+});
+
+test("Cloud-disabled operations declare an application capability guard", async () => {
+  const routes = [
+    "../src/app/api/jobs/daily/route.ts",
+    "../src/app/api/jobs/mvp-flow/route.ts",
+    "../src/app/api/jobs/monthly-reminder/route.ts",
+    "../src/app/api/obsidian/export/daily/route.ts",
+    "../src/app/api/ingestion/runs/route.ts",
+    "../src/app/api/ingestion/dedup/route.ts",
+    "../src/app/api/ingestion/enrichment/route.ts",
+    "../src/app/api/ranking/recall/route.ts",
+    "../src/app/api/ranking/rerank/route.ts",
+    "../src/app/api/profile/refresh/route.ts",
+    "../src/app/api/profile/snapshot/route.ts",
+    "../src/app/api/profile/reminder/route.ts",
+    "../src/app/api/zotero/sync/route.ts",
+    "../src/app/api/zotero/tags/backfill/route.ts",
+    "../src/app/api/zotero/tags/parse/route.ts",
+    "../src/app/api/journals/pool/bootstrap/route.ts",
+    "../src/app/api/journals/pool/health/route.ts"
+  ];
+  for (const route of routes) {
+    assert.match(await readFile(new URL(route, import.meta.url), "utf8"), /rejectCloudCapability/);
+  }
+});
+
+test("health and mutation boundaries are explicit", async () => {
+  const live = await readFile(new URL("../src/app/api/health/live/route.ts", import.meta.url), "utf8");
+  const ready = await readFile(new URL("../src/app/api/health/ready/route.ts", import.meta.url), "utf8");
+  const boundary = await readFile(new URL("../src/lib/http/cloud-boundary.ts", import.meta.url), "utf8");
+  assert.doesNotMatch(live, /DATABASE_URL|getEnv|Prisma|queryRaw/);
+  assert.match(ready, /SELECT 1/);
+  assert.match(boundary, /content-type/);
+  assert.match(boundary, /origin/);
+  assert.doesNotMatch(boundary, /Access-Control-Allow-Origin/);
+});
+
+test("an existing OpenNext artifact contains no native Prisma engine", async (context) => {
+  const artifact = new URL("../.open-next/server-functions/default/", import.meta.url);
+  if (!existsSync(artifact)) {
+    context.skip("run npm run cf:build before bundle inspection");
+    return;
+  }
+  const { readdir } = await import("node:fs/promises");
+  const entries = await readdir(artifact, { recursive: true });
+  const nativeEngines = entries.filter((entry) =>
+    /(?:query_engine|libquery_engine).*(?:\.node|\.dll|\.so|\.dylib)$/i.test(entry)
+  );
+  assert.deepEqual(nativeEngines, []);
+});
+
+test("OpenNext uses the Cloudflare adapter without Pages", () => {
+  assert.match(openNext, /defineCloudflareConfig/);
+  assert.doesNotMatch(openNext + wrangler, /next-on-pages|Cloudflare Pages/i);
+});

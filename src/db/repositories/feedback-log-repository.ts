@@ -1,4 +1,6 @@
-import { Prisma, type PrismaClient } from "../../generated/prisma";
+import type { Prisma, PrismaClient } from "../../generated/prisma";
+import { AppError } from "../../lib/errors";
+import { prismaJsonNull } from "../prisma/application-json";
 import type { FeedbackLogRecord, FeedbackLogRepository, FeedbackActionValue } from "../../modules/feedback/types";
 
 export class PrismaFeedbackLogRepository implements FeedbackLogRepository {
@@ -12,6 +14,18 @@ export class PrismaFeedbackLogRepository implements FeedbackLogRepository {
     newValue?: Record<string, unknown>;
     metadata?: Record<string, unknown>;
   }): Promise<FeedbackLogRecord> {
+    const candidate = await this.db.dailyCanonicalCandidate.findFirst({
+      where: { id: input.candidateId, runId: input.runId },
+      select: { id: true }
+    });
+    if (!candidate) {
+      throw new AppError(
+        "CANDIDATE_RUN_MISMATCH",
+        "The candidate does not belong to the supplied daily run.",
+        400
+      );
+    }
+
     const row = await this.db.candidateFeedbackLog.create({
       data: {
         runId: input.runId,
@@ -100,7 +114,7 @@ function fromDbAction(value: "SAVE" | "DISMISS" | "PROMOTE" | "LABEL_EDIT" | "SU
 
 function toJson(value?: Record<string, unknown>): Prisma.InputJsonValue | Prisma.NullableJsonNullValueInput {
   if (!value) {
-    return Prisma.JsonNull;
+    return prismaJsonNull;
   }
   return value as Prisma.InputJsonValue;
 }

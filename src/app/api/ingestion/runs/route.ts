@@ -1,6 +1,7 @@
 ﻿import { NextResponse } from "next/server";
 
 import { AppError } from "../../../../lib/errors";
+import { appErrorResponse, rejectCloudCapability } from "../../../../lib/http/cloud-boundary";
 import {
   createDailyIngestionService,
   type DailyCandidateSourceValue
@@ -44,6 +45,8 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
+    const unavailable = rejectCloudCapability("ingestion_execution");
+    if (unavailable) return unavailable;
     const body = (await request.json().catch(() => ({}))) as IngestionRequestBody;
 
     if (!body.source || !isCandidateSource(body.source)) {
@@ -78,15 +81,7 @@ function isCandidateSource(value: string): value is DailyCandidateSourceValue {
 
 function toErrorResponse(error: unknown) {
   if (error instanceof AppError) {
-    return NextResponse.json(
-      {
-        status: "error",
-        code: error.code,
-        message: error.message,
-        details: error.details
-      },
-      { status: error.statusCode }
-    );
+    return appErrorResponse(error);
   }
 
   return NextResponse.json(

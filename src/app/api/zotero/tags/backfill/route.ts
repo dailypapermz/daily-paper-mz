@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { AppError } from "../../../../../lib/errors";
+import { rejectCloudCapability } from "../../../../../lib/http/cloud-boundary";
 import { createTagBackfillService } from "../../../../../modules/tagging";
 
 type BackfillRequestBody = {
@@ -9,6 +10,8 @@ type BackfillRequestBody = {
 
 export async function GET() {
   try {
+    const unavailable = rejectCloudCapability("zotero_tag_backfill");
+    if (unavailable) return unavailable;
     const service = createTagBackfillService();
     const latestJob = await service.getLatestJob();
 
@@ -23,6 +26,8 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
+    const unavailable = rejectCloudCapability("zotero_tag_backfill");
+    if (unavailable) return unavailable;
     const body = (await request.json().catch(() => ({}))) as BackfillRequestBody;
 
     if (body.limit !== undefined && !isPositiveInteger(body.limit)) {

@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 
+const IS_CLOUD_MODE = process.env.NEXT_PUBLIC_DEPLOYMENT_MODE === "cloud";
+
 type JournalFeedRecord = {
   id: string;
   journalName: string;
@@ -56,7 +58,7 @@ export default function JournalsPage() {
       }
 
       setFeeds(payload.feeds);
-      void loadHealth();
+      if (!IS_CLOUD_MODE) void loadHealth();
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "Unknown journal pool load error");
     } finally {
@@ -130,7 +132,7 @@ export default function JournalsPage() {
       setFeeds(payload.feeds);
       setJournalName("");
       setFeedUrl("");
-      void loadHealth();
+      if (!IS_CLOUD_MODE) void loadHealth();
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "Unknown journal feed import error");
     } finally {
@@ -167,7 +169,7 @@ export default function JournalsPage() {
       setFeeds((previous) =>
         previous.map((entry) => (entry.id === payload.feed?.id ? payload.feed : entry))
       );
-      void loadHealth();
+      if (!IS_CLOUD_MODE) void loadHealth();
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "Unknown journal feed update error");
     } finally {
@@ -200,7 +202,7 @@ export default function JournalsPage() {
       }
 
       setFeeds(payload.feeds);
-      void loadHealth();
+      if (!IS_CLOUD_MODE) void loadHealth();
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "Unknown bootstrap error");
     } finally {
@@ -238,7 +240,7 @@ export default function JournalsPage() {
         </button>
       </section>
 
-      <section className="controls">
+      {!IS_CLOUD_MODE ? <section className="controls">
         <label className="checkbox">
           <input
             type="checkbox"
@@ -253,7 +255,7 @@ export default function JournalsPage() {
         <button type="button" onClick={() => void loadHealth()} disabled={saving || checkingHealth}>
           {checkingHealth ? "Checking Feeds..." : "Refresh Feed Health"}
         </button>
-      </section>
+      </section> : null}
 
       {loading ? <p>Loading journal pool...</p> : null}
       {errorMessage ? <p className="error">{errorMessage}</p> : null}
