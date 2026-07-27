@@ -1,10 +1,11 @@
 import { EnvValidationError, getEnv } from "../../lib/config";
-import { prisma } from "../../db/prisma/client";
+import { getApplicationPrismaClient } from "../../db/prisma/application-client";
 import { PrismaZoteroSyncRepository } from "../../db/repositories";
 import { HttpZoteroClient } from "./zotero-client";
 import { DefaultZoteroSyncService } from "./zotero-sync.service";
 
 export function createZoteroSyncService() {
+  const prisma = getApplicationPrismaClient();
   const env = getEnv();
   const userId = env.ZOTERO_ID;
   const apiKey = env.ZOTERO_KEY;

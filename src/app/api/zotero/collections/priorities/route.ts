@@ -2,6 +2,10 @@ import { NextResponse } from "next/server";
 
 import { AppError } from "../../../../../lib/errors";
 import {
+  isCloudDeployment,
+  readJsonMutationBody
+} from "../../../../../lib/http/cloud-boundary";
+import {
   createCollectionPriorityService,
   type CollectionPriorityValue
 } from "../../../../../modules/collections";
@@ -27,9 +31,15 @@ export async function GET() {
 
 export async function PUT(request: Request) {
   try {
-    const body = (await request.json().catch(() => ({}))) as UpdatePriorityRequestBody;
+    const parsed = await readJsonMutationBody(request, { maxBytes: 8 * 1024 });
+    if (!parsed.ok) return parsed.response;
+    const body = isPlainObject(parsed.value) ? (parsed.value as UpdatePriorityRequestBody) : {};
 
-    if (!body.zoteroCollectionKey || typeof body.zoteroCollectionKey !== "string") {
+    if (
+      !body.zoteroCollectionKey ||
+      typeof body.zoteroCollectionKey !== "string" ||
+      body.zoteroCollectionKey.trim().length > 191
+    ) {
       return NextResponse.json(
         {
           status: "error",
@@ -53,7 +63,7 @@ export async function PUT(request: Request) {
 
     const service = createCollectionPriorityService();
     const result = await service.updateCollectionPriority({
-      zoteroCollectionKey: body.zoteroCollectionKey,
+      zoteroCollectionKey: body.zoteroCollectionKey.trim(),
       priority: body.priority ?? null
     });
 
@@ -84,7 +94,7 @@ function toErrorResponse(error: unknown) {
         status: "error",
         code: error.code,
         message: error.message,
-        details: error.details
+        ...(isCloudDeployment() ? {} : { details: error.details })
       },
       { status: error.statusCode }
     );
@@ -97,4 +107,8 @@ function toErrorResponse(error: unknown) {
     },
     { status: 500 }
   );
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }

@@ -1,4 +1,5 @@
-import { Prisma, type PrismaClient } from "../../generated/prisma";
+import type { Prisma, PrismaClient } from "../../generated/prisma";
+import { prismaJsonNull } from "../prisma/application-json";
 import type {
   JournalEnrichmentRepository,
   JournalMetricRecord
@@ -137,7 +138,7 @@ function toJson(
   value: Record<string, unknown> | undefined
 ): Prisma.InputJsonValue | Prisma.NullableJsonNullValueInput {
   if (!value) {
-    return Prisma.JsonNull;
+    return prismaJsonNull;
   }
 
   return value as Prisma.InputJsonValue;

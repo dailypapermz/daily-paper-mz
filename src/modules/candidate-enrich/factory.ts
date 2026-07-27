@@ -1,4 +1,4 @@
-import { prisma } from "../../db/prisma/client";
+import { getApplicationPrismaClient } from "../../db/prisma/application-client";
 import { PrismaJournalEnrichmentRepository } from "../../db/repositories";
 import { getEnv } from "../../lib/config";
 import { createJournalEnrichmentProvider } from "./journal-enrichment.provider";
@@ -6,6 +6,7 @@ import { DefaultJournalEnrichmentService } from "./journal-enrichment.service";
 import type { JournalEnrichmentProvider } from "./types";
 
 export function createJournalEnrichmentService(provider?: JournalEnrichmentProvider) {
+  const prisma = getApplicationPrismaClient();
   const env = getEnv();
   const repository = new PrismaJournalEnrichmentRepository(prisma);
   const resolvedProvider =

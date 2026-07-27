@@ -1,5 +1,11 @@
 # Cloud Mode A: GitHub Actions daily job
 
+## Real acceptance status
+
+This checkout has no configured Git remote and no GitHub or Neon credentials. The workflow has therefore not been manually dispatched against Neon. Real ingestion, persisted stages/recommendations/summaries, same-date `already_succeeded`, database uniqueness, and remote log redaction are not claimed as accepted.
+
+When credentials are available, dispatch the workflow twice with the same explicit `runDate`. Verify migrations and the first pipeline result, inspect non-secret database counts, verify the second result is `already_succeeded` with no duplicate run/recommendations, confirm unset notifications are skipped, and inspect logs for all secret values. Record only date, run ID, statuses, and counts here.
+
 Cloud Mode runs the existing persisted daily CLI on a standard GitHub-hosted Node runner. It connects directly to the user's Neon PostgreSQL database; it does not call a Cloudflare or Next.js daily API.
 
 ## Empty-database profile bootstrap

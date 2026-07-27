@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 
+const IS_CLOUD_MODE = process.env.NEXT_PUBLIC_DEPLOYMENT_MODE === "cloud";
+
 type RecommendationSource = "biorxiv" | "arxiv" | "pubmed" | "journal";
 
 type Recommendation = {
@@ -294,8 +296,12 @@ export default function HomePage() {
       {!loading && error && <p className="error">Failed to load recommendations: {error}</p>}
       {!loading && !error && !feed && (
         <p>
-          No recommendation run found yet. Run <code>POST /api/jobs/mvp-flow</code> (full flow) or{" "}
-          <code>POST /api/jobs/daily</code> (daily-only flow), then refresh this page.
+          {IS_CLOUD_MODE ? (
+            <>No recommendation run found yet. Run the GitHub Actions daily workflow, then refresh this page.</>
+          ) : (
+            <>No recommendation run found yet. Run <code>POST /api/jobs/mvp-flow</code> (full flow) or{" "}
+            <code>POST /api/jobs/daily</code> (daily-only flow), then refresh this page.</>
+          )}
         </p>
       )}
 
@@ -306,9 +312,11 @@ export default function HomePage() {
             <span>Ingestion run: {feed.runId}</span>
             <span>Generated: {new Date(feed.generatedAt).toLocaleString()}</span>
             <span>Total shown: {recommendations.length}</span>
-            <button type="button" onClick={exportToObsidian}>
-              Export to Obsidian
-            </button>
+            {!IS_CLOUD_MODE ? (
+              <button type="button" onClick={exportToObsidian}>
+                Export to Obsidian
+              </button>
+            ) : null}
           </section>
           {actionError ? <p className="error">Failed to persist feedback action: {actionError}</p> : null}
           {editError ? <p className="error">Failed to save label edit: {editError}</p> : null}

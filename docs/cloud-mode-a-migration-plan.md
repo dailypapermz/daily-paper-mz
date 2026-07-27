@@ -1,5 +1,7 @@
 # Cloud Mode A migration plan
 
+Implementation update (2026-07-27): PR 4 is implemented in the isolated Cloud Mode branch. Production account deployment and credentialed Neon/Cloudflare acceptance remain pending; Obsidian plugin work has not started.
+
 Status: PR 1–PR 3 approved and implemented on the Cloud Mode A branch. PR 4 remains out of scope until separately approved.
 
 ## Guardrails

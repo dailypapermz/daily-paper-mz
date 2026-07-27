@@ -1,8 +1,12 @@
 import { NextResponse } from "next/server";
 
+import { getApplicationPrismaClient } from "../../../../db/prisma/application-client";
+import { PrismaZoteroSyncRepository } from "../../../../db/repositories";
 import { AppError } from "../../../../lib/errors";
 import { EnvValidationError } from "../../../../lib/config";
+import { appErrorResponse, isCloudDeployment, rejectCloudCapability } from "../../../../lib/http/cloud-boundary";
 import { createZoteroSyncService } from "../../../../modules/zotero-sync";
+import { mapRunSummary } from "../../../../modules/zotero-sync/zotero-sync.service";
 
 type SyncRequestBody = {
   mode?: "full" | "incremental";
@@ -10,8 +14,9 @@ type SyncRequestBody = {
 
 export async function GET() {
   try {
-    const service = createZoteroSyncService();
-    const latestRun = await service.getLatestRun();
+    const repository = new PrismaZoteroSyncRepository(getApplicationPrismaClient());
+    const row = await repository.getLatestRun();
+    const latestRun = row ? mapRunSummary(row) : null;
 
     return NextResponse.json({
       status: "ok",
@@ -24,6 +29,8 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
+    const unavailable = rejectCloudCapability("zotero_sync_execution");
+    if (unavailable) return unavailable;
     const body = (await request.json().catch(() => ({}))) as SyncRequestBody;
 
     if (body.mode && body.mode !== "full" && body.mode !== "incremental") {
@@ -51,6 +58,12 @@ export async function POST(request: Request) {
 
 function toErrorResponse(error: unknown) {
   if (error instanceof EnvValidationError) {
+    if (isCloudDeployment()) {
+      return NextResponse.json(
+        { status: "error", code: "ENV_VALIDATION_ERROR" },
+        { status: 500 }
+      );
+    }
     return NextResponse.json(
       {
         status: "error",
@@ -63,15 +76,7 @@ function toErrorResponse(error: unknown) {
   }
 
   if (error instanceof AppError) {
-    return NextResponse.json(
-      {
-        status: "error",
-        code: error.code,
-        message: error.message,
-        details: error.details
-      },
-      { status: error.statusCode }
-    );
+    return appErrorResponse(error);
   }
 
   return NextResponse.json(

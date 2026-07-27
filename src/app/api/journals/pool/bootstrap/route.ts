@@ -1,14 +1,18 @@
 import { NextResponse } from "next/server";
 
-import { prisma } from "../../../../../db/prisma/client";
+import { getApplicationPrismaClient } from "../../../../../db/prisma/application-client";
 import { PrismaJournalFeedRepository } from "../../../../../db/repositories";
 import { getEnv } from "../../../../../lib/config";
+import { rejectCloudCapability } from "../../../../../lib/http/cloud-boundary";
 
 type BootstrapJournalPoolBody = {
   allowWhenNotEmpty?: boolean;
 };
 
 export async function POST(request: Request) {
+  const unavailable = rejectCloudCapability("journal_pool_bootstrap");
+  if (unavailable) return unavailable;
+  const prisma = getApplicationPrismaClient();
   const body = (await request.json().catch(() => ({}))) as BootstrapJournalPoolBody;
   const allowWhenNotEmpty = body.allowWhenNotEmpty ?? false;
 

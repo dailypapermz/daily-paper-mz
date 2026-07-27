@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { AppError } from "../../../../../lib/errors";
+import { appErrorResponse, rejectCloudCapability } from "../../../../../lib/http/cloud-boundary";
 import { createTagSemanticsService } from "../../../../../modules/tagging";
 
 type ParseTagsRequestBody = {
@@ -23,6 +24,8 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
+    const unavailable = rejectCloudCapability("zotero_tag_parsing");
+    if (unavailable) return unavailable;
     const body = (await request.json().catch(() => ({}))) as ParseTagsRequestBody;
 
     if (body.zoteroItemKeys && !isStringArray(body.zoteroItemKeys)) {
@@ -56,15 +59,7 @@ function isStringArray(value: unknown): value is string[] {
 
 function toErrorResponse(error: unknown) {
   if (error instanceof AppError) {
-    return NextResponse.json(
-      {
-        status: "error",
-        code: error.code,
-        message: error.message,
-        details: error.details
-      },
-      { status: error.statusCode }
-    );
+    return appErrorResponse(error);
   }
 
   return NextResponse.json(

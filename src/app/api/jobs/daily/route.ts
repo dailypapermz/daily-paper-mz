@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { runDailyRecommendationPipeline } from "../../../../modules/scheduler";
+import { rejectCloudCapability, sanitizedInternalError } from "../../../../lib/http/cloud-boundary";
 
 type DailyJobBody = {
   runDate?: string;
@@ -8,15 +8,19 @@ type DailyJobBody = {
 };
 
 export async function POST(request: Request) {
+  const unavailable = rejectCloudCapability("daily_pipeline");
+  if (unavailable) return unavailable;
   const body = (await request.json().catch(() => ({}))) as DailyJobBody;
 
-  const result = await runDailyRecommendationPipeline({
-    runDate: body.runDate,
-    sources: Array.isArray(body.sources) ? body.sources : undefined
-  });
+  try {
+    const { runDailyRecommendationPipeline } = await import("../../../../modules/scheduler");
+    const result = await runDailyRecommendationPipeline({
+      runDate: body.runDate,
+      sources: Array.isArray(body.sources) ? body.sources : undefined
+    });
 
-  return NextResponse.json({
-    status: "ok",
-    result
-  });
+    return NextResponse.json({ status: "ok", result });
+  } catch {
+    return sanitizedInternalError("DAILY_JOB_FAILED");
+  }
 }

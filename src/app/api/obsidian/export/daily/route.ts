@@ -2,15 +2,20 @@ import { NextResponse } from "next/server";
 
 import { AppError } from "../../../../../lib/errors";
 import {
-  createObsidianExportService,
-  type ObsidianExportRequest
-} from "../../../../../modules/obsidian";
+  isCloudDeployment,
+  rejectCloudCapability,
+  sanitizedInternalError
+} from "../../../../../lib/http/cloud-boundary";
+import type { ObsidianExportRequest } from "../../../../../modules/obsidian";
 
 type ObsidianExportBody = ObsidianExportRequest;
 
 export async function POST(request: Request) {
   try {
+    const unavailable = rejectCloudCapability("obsidian_filesystem_export");
+    if (unavailable) return unavailable;
     const body = (await request.json().catch(() => ({}))) as ObsidianExportBody;
+    const { createObsidianExportService } = await import("../../../../../modules/obsidian");
     const service = createObsidianExportService();
     const result = await service.exportDailyRecommendations({
       runId: normalizeOptionalString(body.runId),
@@ -32,20 +37,13 @@ export async function POST(request: Request) {
           status: "error",
           code: error.code,
           message: error.message,
-          details: error.details
+          ...(isCloudDeployment() ? {} : { details: error.details })
         },
         { status: error.statusCode }
       );
     }
 
-    return NextResponse.json(
-      {
-        status: "error",
-        code: "OBSIDIAN_EXPORT_FAILED",
-        message: error instanceof Error ? error.message : "Unknown Obsidian export error"
-      },
-      { status: 500 }
-    );
+    return sanitizedInternalError("OBSIDIAN_EXPORT_FAILED");
   }
 }
 
