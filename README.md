@@ -96,10 +96,26 @@ Setup summary:
 
 The workflow validates/generates the PostgreSQL client, applies the independent cloud migration history, and then invokes the existing `job:daily:cloud` CLI. Notification settings are optional; failures do not roll back persisted results. See [Cloud Mode A GitHub Actions runbook](docs/cloud-mode-a-github-actions.md) for the full Secrets/Variables, schedule, retry, and exit-code contract.
 
+## Cloud Mode dashboard on Cloudflare Workers
+
+OpenNext can deploy the dashboard and short interactive APIs to Cloudflare Workers. The Worker reads the same Neon database but never runs migrations or the daily pipeline.
+
+```text
+npm run cf:typegen
+npm run test:cloudflare
+npm run cf:build
+npm run cf:preview
+npm run cf:deploy
+```
+
+Before deployment, add `DATABASE_URL` as a Worker secret, configure a custom hostname, and protect it with Cloudflare Access. The committed Wrangler config disables `workers.dev` and preview URLs. Only `/api/health/live` may receive an exact public Access bypass; readiness and every dashboard/API route remain protected. See [Workers deployment](docs/cloud-mode-a-workers.md) and the [dependency audit](docs/cloud-mode-a-dependency-audit.md).
+
 ## Validation Commands
 - tests: `npm run test`
 - typecheck: `npm run typecheck`
 - production build: `npm run build`
+- Cloudflare contract: `npm run test:cloudflare`
+- OpenNext Worker build: `npm run cf:build`
 
 If `next build` fails in Windows sandboxed environments with `EPERM ... Application Data`, run build with an isolated home/profile:
 

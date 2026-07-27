@@ -1,5 +1,7 @@
 # Cloud Mode A architecture
 
+Implementation update (2026-07-27): PR 4 now includes the OpenNext Worker runtime, Neon adapter client, capability/request guards, health split, and deployment runbook. Real GitHub/Neon/Cloudflare account acceptance is still pending credentials.
+
 Status: approved architecture; PR 1–PR 3 contracts are implemented. Worker deployment remains future PR 4 scope.
 
 ## Decisions made by this design
@@ -154,7 +156,7 @@ The logical data model remains aligned. Provider-native migrations, JSON default
 - Workers creates/obtains a request-safe PostgreSQL adapter/client; no connection/I/O object created for one request is reused by a later request.
 - Repository business behavior remains shared. A build-time selected generated client is preferred over duplicating every repository, but must be proven in a spike.
 
-For a generic managed PostgreSQL target, start the spike with `@prisma/adapter-pg` under `nodejs_compat` and a provider pooled TLS URL. Prisma's current guide documents that path on Workers. If the selected provider has an official serverless adapter, it may be chosen after acceptance tests. The `@prisma/ppg` serverless driver is currently marked Early Access and is not the default production recommendation: [Prisma serverless driver](https://docs.prisma.io/docs/postgres/database/serverless-driver).
+PR 4 selected `@prisma/adapter-neon` with Neon's serverless driver. A second Rust-free Prisma Client is generated from the existing PostgreSQL schema with `engineType = "client"` and selected only in the Worker build. Actions retains the standard Node PostgreSQL Client; Local Mode retains SQLite. The Worker never runs migrations.
 
 ### Migration credentials
 
@@ -164,7 +166,7 @@ Do not run `prisma migrate dev` against a data-bearing database. The daily workf
 
 ## Worker architecture
 
-Current official deployment path is `@opennextjs/cloudflare` on Workers. Phase 2 will add a committed `wrangler.jsonc`, `open-next.config.ts`, preview/deploy scripts, ignored build state, and a Linux build. The configuration requires:
+The implemented deployment path is `@opennextjs/cloudflare` on Workers, with committed `wrangler.jsonc`, `open-next.config.ts`, preview/deploy/type-generation scripts, and ignored build state. The configuration requires:
 
 - `.open-next/worker.js` entry and `.open-next/assets`;
 - `nodejs_compat`;
