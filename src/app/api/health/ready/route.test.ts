@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({ query: vi.fn(), release: vi.fn() }));
+const mocks = vi.hoisted(() => ({ getClient: vi.fn(), query: vi.fn(), release: vi.fn() }));
 
 vi.mock("../../../../db/prisma/application-client", () => ({
-  getApplicationPrismaClient: () => ({ $queryRawUnsafe: mocks.query }),
+  getApplicationPrismaClient: mocks.getClient,
   releaseApplicationPrismaClient: mocks.release
 }));
 
@@ -13,6 +13,7 @@ describe("GET /api/health/ready", () => {
   beforeEach(() => {
     mocks.query.mockReset();
     mocks.release.mockReset().mockResolvedValue(undefined);
+    mocks.getClient.mockReset().mockReturnValue({ $queryRawUnsafe: mocks.query });
   });
 
   it("reports readiness after a database query", async () => {
@@ -28,5 +29,18 @@ describe("GET /api/health/ready", () => {
     const response = await GET();
     expect(response.status).toBe(503);
     expect(JSON.stringify(await response.json())).not.toContain("secret");
+  });
+
+  it("sanitizes database-client construction errors", async () => {
+    mocks.getClient.mockImplementation(() => {
+      throw new Error("DATABASE_URL postgresql://secret@example");
+    });
+    const response = await GET();
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({
+      status: "unavailable",
+      code: "DATABASE_UNAVAILABLE"
+    });
+    expect(mocks.release).not.toHaveBeenCalled();
   });
 });

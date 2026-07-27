@@ -6,8 +6,9 @@ import {
 } from "../../../../db/prisma/application-client";
 
 export async function GET() {
-  const client = getApplicationPrismaClient();
+  let client: ReturnType<typeof getApplicationPrismaClient> | undefined;
   try {
+    client = getApplicationPrismaClient();
     await client.$queryRawUnsafe("SELECT 1");
     return NextResponse.json(
       { status: "ready" },
@@ -19,6 +20,8 @@ export async function GET() {
       { status: 503, headers: { "Cache-Control": "no-store" } }
     );
   } finally {
-    await releaseApplicationPrismaClient(client).catch(() => undefined);
+    if (client) {
+      await releaseApplicationPrismaClient(client).catch(() => undefined);
+    }
   }
 }
