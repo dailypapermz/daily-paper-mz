@@ -108,7 +108,7 @@ npm run cf:preview
 npm run cf:deploy
 ```
 
-Before deployment, add `DATABASE_URL` as a Worker secret, configure a custom hostname, and protect it with Cloudflare Access. The committed Wrangler config disables `workers.dev` and preview URLs. Only `/api/health/live` may receive an exact public Access bypass; readiness and every dashboard/API route remain protected. See [Workers deployment](docs/cloud-mode-a-workers.md) and the [dependency audit](docs/cloud-mode-a-dependency-audit.md).
+Before deployment, add `DATABASE_URL` as a Worker secret and enable Cloudflare Access on the production `daily-paper.<account-subdomain>.workers.dev` route. The committed Wrangler config enables only the production `workers.dev` URL; preview URLs remain disabled. The Worker also validates the Access JWT issuer, audience, signature, and configured owner email. Only `/api/health/live` may receive an exact public Access exception; readiness and every dashboard/API route remain protected. A later custom domain changes routing and Access configuration, not application or database code. See [Workers deployment](docs/cloud-mode-a-workers.md) and the [dependency audit](docs/cloud-mode-a-dependency-audit.md).
 
 ## Validation Commands
 - tests: `npm run test`

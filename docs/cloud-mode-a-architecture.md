@@ -13,14 +13,14 @@ Status: approved architecture; PR 1–PR 3 contracts are implemented. Worker dep
 - Keep SQLite and PostgreSQL schemas/migrations separate while sharing the application domain and HTTP DTOs.
 - Force Zotero Web API in Cloud Mode.
 - Keep Obsidian filesystem sync, Windows Task Scheduler, and Toast Local-only.
-- Protect the whole Worker with Cloudflare Access and add application request-integrity/capability guards.
+- Protect the production `workers.dev` Worker with Cloudflare Access, validate its JWT again in the Worker, and retain application request-integrity/capability guards.
 - Do not introduce D1, Workflows, Queues, SaaS tenancy, or an Obsidian plugin in this migration.
 
 ## Approved instance inputs (2026-07-26)
 
 - The first personal instance uses Neon PostgreSQL in AWS `eu-central-1` (Frankfurt). Region is a deployment choice, never an application default; deployment guidance tells each user to choose a nearby Neon region.
 - The first Cloud database starts empty after the PostgreSQL migration history is deployed. Existing SQLite remains untouched; Zotero data and profile snapshots are rebuilt through normal synchronization. Historical recommendation/feedback import remains an optional later maintenance interface.
-- Cloudflare Access uses Cloudflare account membership and an instance-owner allowlist configured outside the repository. Dashboard and interactive APIs are protected; no public-domain or `Everyone` policy is allowed. Headless callers use a separate service token if a future API call needs one.
+- The first release uses `daily-paper.<account-subdomain>.workers.dev` with preview URLs disabled. Cloudflare Access uses an instance-owner email allowlist configured outside the repository. Dashboard and interactive APIs are protected; no public-domain or `Everyone` allow policy is permitted. Headless callers use a separate service token if a future API call needs one.
 - The template workflow uses `Asia/Shanghai` at 08:15 and retains `workflow_dispatch` with optional `runDate`. Each user may edit `.github/workflows/daily.yml`; cron and timezone are not business-code settings.
 
 The owner's actual login address, Neon credentials, database URL, and Access policy values are personal deployment data and must not be committed.
@@ -198,6 +198,8 @@ The feedback service must log the database event even when Obsidian is unavailab
 
 Cloudflare Access protects the entire Worker and preview deployments. Each independent instance allowlists its owner's identity, preferably with one-time PIN or the user's selected identity provider. Access checks each protected request and issues the `CF_Authorization` cookie: [Access authorization cookie](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/authorization-cookie/).
 
+The first release enables Access on the production `workers.dev` route and keeps preview URLs disabled. The Worker does not merely trust route configuration: it validates `Cf-Access-Jwt-Assertion` with Cloudflare's rotating JWKS and checks issuer, application audience, and the deployment-configured owner email. The exact `/api/health/live` path is the only application-level JWT exception and exposes no database or configuration state.
+
 ### Browser writes
 
 For every state-changing route:
@@ -218,7 +220,7 @@ The daily workflow does not call the Worker and therefore needs no job-trigger t
 | Store | Secrets | Non-secret variables |
 |---|---|---|
 | GitHub production environment | runtime/direct PostgreSQL URLs, Zotero key/ID, LLM key, EasyScholar key, SMTP credentials/addresses, WeCom webhook, optional Access service token | deployment mode, models/base URLs without embedded credentials, source scopes, timeouts, dashboard URL |
-| Cloudflare runtime | Worker PostgreSQL runtime URL; future service-verification secrets if required | deployment mode, public origin, feature flags |
+| Cloudflare runtime | Worker PostgreSQL runtime URL; owner email as private deployment configuration; future service-verification secrets if required | deployment mode, Access team domain and application audience, public origin, feature flags |
 | Repository | none | examples/placeholders and secret-name documentation only |
 
 Do not pack secrets into JSON blobs; GitHub notes that structured secrets are harder to redact. Logs must use existing health/status summaries rather than dumping environment objects, URLs, request headers, provider error bodies, or Prisma connection errors.
