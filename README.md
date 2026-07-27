@@ -70,6 +70,7 @@ This orchestrates:
 
 CLI wrappers:
 - `npm run job:daily`
+- `npm run job:daily:cloud` (Cloud Mode direct Node job)
 - `npm run job:monthly-reminder`
 - `npm run job:scheduler-loop`
 
@@ -79,6 +80,21 @@ Scheduler env knobs:
 - `SCHEDULER_MONTHLY_UTC_DAY`
 - `SCHEDULER_MONTHLY_UTC_HOUR`
 - `SCHEDULER_POLL_MS`
+
+## Cloud Mode daily execution
+
+Cloud Mode keeps the Windows/SQLite path intact and runs the persisted daily pipeline directly in GitHub Actions against an empty managed PostgreSQL database. The committed workflow is `.github/workflows/daily.yml`; it does not call the Next.js or Cloudflare daily API.
+
+Setup summary:
+
+1. Create a Neon database in a region near the instance owner. The first personal instance uses AWS Frankfurt (`eu-central-1`), but no provider region is hardcoded.
+2. Create a GitHub Actions environment named `production`.
+3. Add required secrets: `DATABASE_URL`, `ZOTERO_ID`, `ZOTERO_KEY`, and `LLM_API_KEY`.
+4. Optionally add `LLM_MODEL`, `LLM_API_BASE_URL`, `NOTIFICATION_DASHBOARD_URL`, WeCom, and SMTP settings.
+5. Run **Cloud daily recommendations** manually once, optionally with a strict `runDate` (`YYYY-MM-DD`).
+6. Keep or edit the template schedule, which defaults to 08:15 `Asia/Shanghai` (UTC 00:15).
+
+The workflow validates/generates the PostgreSQL client, applies the independent cloud migration history, and then invokes the existing `job:daily:cloud` CLI. Notification settings are optional; failures do not roll back persisted results. See [Cloud Mode A GitHub Actions runbook](docs/cloud-mode-a-github-actions.md) for the full Secrets/Variables, schedule, retry, and exit-code contract.
 
 ## Validation Commands
 - tests: `npm run test`

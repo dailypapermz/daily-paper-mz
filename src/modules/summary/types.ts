@@ -73,17 +73,45 @@ export type CandidateOutputGenerationResult = {
   outputs: CandidateOutputRecord[];
 };
 
+export type CandidateOutputProviderHealth = {
+  name: string;
+  status: "ready" | "unavailable";
+  model?: string;
+  endpoint?: string;
+  timeoutMs?: number;
+  maxRetries?: number;
+  concurrency?: number;
+  reason?: string;
+};
+
 export interface CandidateOutputProvider {
   name: string;
+  getHealth(): CandidateOutputProviderHealth;
+  generateLabels(input: CandidateGenerationInputRecord): Promise<CandidateStructuredLabels>;
+  generateLabelsBatch?(
+    input: CandidateGenerationInputRecord[]
+  ): Promise<Array<{ candidateId: string; labels: CandidateStructuredLabels }>>;
+  generateSummary(input: CandidateGenerationInputRecord): Promise<CandidateSummaryFields>;
   generateOutput(input: CandidateGenerationInputRecord): Promise<CandidateGeneratedOutput>;
 }
 
 export interface CandidateOutputRepository {
   listCandidatesForGeneration(input: {
     runId: string;
-    limit: number;
+    limit?: number;
     selectedOnly?: boolean;
+    missingOutput?: "labels" | "summary";
   }): Promise<CandidateGenerationInputRecord[]>;
+  saveGeneratedLabels(input: {
+    candidateId: string;
+    provider: string;
+    labels: CandidateStructuredLabels;
+  }): Promise<void>;
+  saveGeneratedSummary(input: {
+    candidateId: string;
+    provider: string;
+    summary: CandidateSummaryFields;
+  }): Promise<void>;
   saveGeneratedOutput(input: {
     candidateId: string;
     provider: string;
@@ -100,6 +128,16 @@ export interface CandidateOutputRepository {
 }
 
 export interface CandidateOutputService {
+  getProviderHealth(): CandidateOutputProviderHealth;
+  generateLabelsForRun(input: {
+    runId: string;
+    limit?: number;
+  }): Promise<CandidateOutputGenerationResult>;
+  generateSummariesForRun(input: {
+    runId: string;
+    limit?: number;
+    selectedOnly?: boolean;
+  }): Promise<CandidateOutputGenerationResult>;
   generateForRun(input: {
     runId: string;
     limit?: number;

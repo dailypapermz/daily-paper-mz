@@ -1,2 +1,2 @@
-export { EnvValidationError, getEnv, loadEnv } from "./env";
-export type { AppEnv } from "./env";
+export { EnvValidationError, getDeploymentCapabilities, getEnv, loadEnv } from "./env";
+export type { AppEnv, DeploymentCapabilities, DeploymentMode } from "./env";

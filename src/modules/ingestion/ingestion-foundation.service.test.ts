@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import { AppError } from "../../lib/errors";
-import { createAdapterMap, DefaultDailyIngestionService } from "./ingestion-foundation.service";
+import {
+  buildDailyRunRequestKey,
+  createAdapterMap,
+  DefaultDailyIngestionService
+} from "./ingestion-foundation.service";
 import type {
   DailyIngestionRepository,
   DailySourceAdapter,
@@ -9,6 +13,8 @@ import type {
 } from "./types";
 
 class FakeRepository implements DailyIngestionRepository {
+  private cursors = new Map<string, Date>();
+  private seen = new Map<string, Set<string>>();
   private latestRun: {
     id: string;
     source: "biorxiv" | "arxiv" | "pubmed" | "journal" | "aggregated";
@@ -16,6 +22,8 @@ class FakeRepository implements DailyIngestionRepository {
     runDate: string;
     startedAt: string;
     candidatesCount: number;
+    attempt: number;
+    requestKey?: string;
   } | null = null;
 
   private candidates: Array<{
@@ -27,9 +35,18 @@ class FakeRepository implements DailyIngestionRepository {
     authors: string[];
   }> = [];
 
-  async createRun(input: {
+  seedCursor(source: "biorxiv" | "arxiv" | "pubmed" | "journal", value: Date) {
+    this.cursors.set(source, value);
+  }
+
+  seedSeen(source: "biorxiv" | "arxiv" | "pubmed" | "journal", values: string[]) {
+    this.seen.set(source, new Set(values));
+  }
+
+  async acquireRun(input: {
     source: "biorxiv" | "arxiv" | "pubmed" | "journal" | "aggregated";
     runDate: Date;
+    requestKey: string;
   }) {
     this.latestRun = {
       id: "run-1",
@@ -37,9 +54,30 @@ class FakeRepository implements DailyIngestionRepository {
       status: "running",
       runDate: input.runDate.toISOString(),
       startedAt: new Date().toISOString(),
-      candidatesCount: 0
+      candidatesCount: 0,
+      attempt: 1,
+      requestKey: input.requestKey
     };
-    return { id: "run-1" };
+    return { run: this.latestRun, disposition: "acquired" as const };
+  }
+
+  async finalizeRunSuccess(input: {
+    runId: string;
+    entries: Array<{
+      source: "biorxiv" | "arxiv" | "pubmed" | "journal";
+      candidate: DailySourceAdapterCandidate;
+    }>;
+    checkpoints: Array<{
+      source: "biorxiv" | "arxiv" | "pubmed" | "journal";
+      successfulAt: Date;
+      seenExternalIds?: string[];
+    }>;
+  }) {
+    const candidatesCount = await this.saveCandidates({ runId: input.runId, entries: input.entries });
+    for (const checkpoint of input.checkpoints) {
+      await this.commitSourceSuccess(checkpoint);
+    }
+    return this.markRunSucceeded({ runId: input.runId, candidatesCount });
   }
 
   async saveCandidates(input: {
@@ -68,7 +106,9 @@ class FakeRepository implements DailyIngestionRepository {
       status: "success",
       runDate: this.latestRun?.runDate ?? new Date().toISOString(),
       startedAt: this.latestRun?.startedAt ?? new Date().toISOString(),
-      candidatesCount: input.candidatesCount
+      candidatesCount: input.candidatesCount,
+      attempt: this.latestRun?.attempt ?? 1,
+      requestKey: this.latestRun?.requestKey
     };
 
     return {
@@ -84,7 +124,9 @@ class FakeRepository implements DailyIngestionRepository {
       status: "failed",
       runDate: this.latestRun?.runDate ?? new Date().toISOString(),
       startedAt: this.latestRun?.startedAt ?? new Date().toISOString(),
-      candidatesCount: 0
+      candidatesCount: 0,
+      attempt: this.latestRun?.attempt ?? 1,
+      requestKey: this.latestRun?.requestKey
     };
 
     return {
@@ -98,15 +140,45 @@ class FakeRepository implements DailyIngestionRepository {
     return this.latestRun;
   }
 
+  async getRun(runId: string) {
+    return this.latestRun?.id === runId ? this.latestRun : null;
+  }
+
   async listCandidatesByRun() {
     return this.candidates;
+  }
+
+  async getSourceCursor(source: "biorxiv" | "arxiv" | "pubmed" | "journal") {
+    return this.cursors.get(source);
+  }
+
+  async listSeenExternalIds(source: "biorxiv" | "arxiv" | "pubmed" | "journal", externalIds: string[]) {
+    const seen = this.seen.get(source) ?? new Set<string>();
+    return new Set(externalIds.filter((id) => seen.has(id)));
+  }
+
+  async commitSourceSuccess(input: {
+    source: "biorxiv" | "arxiv" | "pubmed" | "journal";
+    successfulAt: Date;
+    seenExternalIds?: string[];
+  }) {
+    this.cursors.set(input.source, input.successfulAt);
+    const seen = this.seen.get(input.source) ?? new Set<string>();
+    input.seenExternalIds?.forEach((id) => seen.add(id));
+    this.seen.set(input.source, seen);
   }
 }
 
 describe("DefaultDailyIngestionService", () => {
-  it("runs ingestion with configured adapter and stores today-only candidates", async () => {
+  it("builds one stable key for equivalent source sets", () => {
+    const date = new Date("2026-03-07T00:00:00.000Z");
+    expect(buildDailyRunRequestKey(date, ["pubmed", "arxiv"], true)).toBe(
+      buildDailyRunRequestKey(date, ["arxiv", "pubmed", "arxiv"], true)
+    );
+  });
+  it("uses a bounded watermark lookback and deduplicates fetched candidates", async () => {
     const adapter: DailySourceAdapter = {
-      source: "biorxiv",
+      source: "arxiv",
       async fetchCandidatesForDay(window) {
         return [
           {
@@ -126,6 +198,18 @@ describe("DefaultDailyIngestionService", () => {
             publishedAt: new Date(window.dayStart.getTime() - 60 * 60 * 1000),
             sourcePayload: { id: 2 },
             authors: []
+          },
+          {
+            externalId: "watermark-boundary",
+            publishedAt: window.sourceStart,
+            sourcePayload: { id: 3 },
+            authors: []
+          },
+          {
+            externalId: "before-watermark",
+            publishedAt: new Date((window.sourceStart ?? window.dayStart).getTime() - 1),
+            sourcePayload: { id: 4 },
+            authors: []
           }
         ];
       }
@@ -134,14 +218,16 @@ describe("DefaultDailyIngestionService", () => {
     const service = new DefaultDailyIngestionService(createAdapterMap([adapter]), new FakeRepository());
 
     const result = await service.runSourceIngestion({
-      source: "biorxiv",
+      source: "arxiv",
       runDate: "2026-03-07T00:00:00.000Z"
     });
 
     expect(result.run.status).toBe("success");
-    expect(result.run.candidatesCount).toBe(1);
+    expect(result.run.candidatesCount).toBe(3);
     expect(result.candidates[0].externalId).toBe("today-1");
     expect(result.candidates[0].sourcePayload.id).toBe(1);
+    expect(result.candidates[1].externalId).toBe("old-1");
+    expect(result.candidates[2].externalId).toBe("watermark-boundary");
   });
 
   it("throws controlled error when adapter is missing", async () => {
@@ -191,8 +277,14 @@ describe("DefaultDailyIngestionService", () => {
     expect(result.run.status).toBe("success");
     expect(result.run.candidatesCount).toBe(2);
     expect(result.sourceSummaries).toEqual([
-      { source: "arxiv", status: "success", candidatesCount: 1 },
-      { source: "pubmed", status: "success", candidatesCount: 1 }
+      expect.objectContaining({
+        source: "arxiv", status: "success", candidatesCount: 1,
+        fetchedCount: 1, filteredCount: 0, filterMode: "watermark"
+      }),
+      expect.objectContaining({
+        source: "pubmed", status: "success", candidatesCount: 1,
+        fetchedCount: 1, filteredCount: 0, filterMode: "indexed_day"
+      })
     ]);
     expect(result.candidates.map((candidate) => candidate.source)).toEqual(["arxiv", "pubmed"]);
   });
@@ -235,8 +327,62 @@ describe("DefaultDailyIngestionService", () => {
         candidatesCount: 0,
         errorMessage: "bioRxiv unavailable"
       },
-      { source: "arxiv", status: "success", candidatesCount: 1 }
+      expect.objectContaining({ source: "arxiv", status: "success", candidatesCount: 1 })
     ]);
     expect(result.candidates.map((candidate) => candidate.source)).toEqual(["arxiv"]);
+  });
+
+  it("uses first-seen journal IDs after a bounded bootstrap", async () => {
+    const repository = new FakeRepository();
+    const adapter: DailySourceAdapter = {
+      source: "journal",
+      async fetchCandidatesForDay(window) {
+        return [
+          {
+            externalId: "recent",
+            publishedAt: new Date((window.sourceEnd ?? window.dayEnd).getTime() - 60_000),
+            sourcePayload: {}, authors: []
+          },
+          {
+            externalId: "historical",
+            publishedAt: new Date("2020-01-01T00:00:00.000Z"),
+            sourcePayload: {}, authors: []
+          }
+        ];
+      }
+    };
+    const service = new DefaultDailyIngestionService(createAdapterMap([adapter]), repository);
+
+    const first = await service.runSourceIngestion({ source: "journal", runDate: "2026-03-07" });
+    expect(first.candidates.map((item) => item.externalId)).toEqual(["recent"]);
+    expect(await repository.listSeenExternalIds("journal", ["recent", "historical"])).toEqual(
+      new Set(["recent", "historical"])
+    );
+  });
+
+  it("uses a rolling lookback and first-seen version IDs for bioRxiv", async () => {
+    const repository = new FakeRepository();
+    repository.seedCursor("biorxiv", new Date("2026-03-07T06:00:00.000Z"));
+    repository.seedSeen("biorxiv", ["10.1101/already-seenv1"]);
+    let requestedStart: Date | undefined;
+    const adapter: DailySourceAdapter = {
+      source: "biorxiv",
+      async fetchCandidatesForDay(window) {
+        requestedStart = window.sourceStart;
+        return [
+          { externalId: "10.1101/already-seenv1", publishedAt: window.dayStart, sourcePayload: {}, authors: [] },
+          { externalId: "10.1101/new-versionv2", publishedAt: window.dayStart, sourcePayload: {}, authors: [] }
+        ];
+      }
+    };
+
+    const service = new DefaultDailyIngestionService(createAdapterMap([adapter]), repository);
+    const result = await service.runSourceIngestion({ source: "biorxiv", runDate: "2026-03-07" });
+
+    expect(requestedStart?.toISOString()).toBe("2026-02-28T00:00:00.000Z");
+    expect(result.candidates.map((item) => item.externalId)).toEqual(["10.1101/new-versionv2"]);
+    expect(await repository.listSeenExternalIds("biorxiv", ["10.1101/new-versionv2"])).toEqual(
+      new Set(["10.1101/new-versionv2"])
+    );
   });
 });

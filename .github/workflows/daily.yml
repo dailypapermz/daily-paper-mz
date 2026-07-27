@@ -1,0 +1,84 @@
+name: Cloud daily recommendations
+
+on:
+  schedule:
+    - cron: "15 8 * * *"
+      timezone: "Asia/Shanghai"
+  workflow_dispatch:
+    inputs:
+      runDate:
+        description: "Optional UTC business date (YYYY-MM-DD); omit for the previous UTC day"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: daily-paper-cloud-${{ github.repository }}-production
+  cancel-in-progress: false
+
+jobs:
+  daily:
+    name: Run persisted cloud daily pipeline
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 120
+    env:
+      DEPLOYMENT_MODE: cloud
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      ZOTERO_TRANSPORT: web
+      ZOTERO_ID: ${{ secrets.ZOTERO_ID }}
+      ZOTERO_KEY: ${{ secrets.ZOTERO_KEY }}
+      LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+      LLM_API_BASE_URL: ${{ vars.LLM_API_BASE_URL }}
+      LLM_MODEL: ${{ vars.LLM_MODEL }}
+      OBSIDIAN_ENABLED: "false"
+      SCHEDULER_DESKTOP_NOTIFICATION_ENABLED: "false"
+      NOTIFICATION_DASHBOARD_URL: ${{ vars.NOTIFICATION_DASHBOARD_URL }}
+      WECOM_BOT_WEBHOOK_URL: ${{ secrets.WECOM_BOT_WEBHOOK_URL }}
+      NOTIFICATION_SMTP_HOST: ${{ secrets.NOTIFICATION_SMTP_HOST }}
+      NOTIFICATION_SMTP_PORT: ${{ secrets.NOTIFICATION_SMTP_PORT }}
+      NOTIFICATION_SMTP_SECURE: ${{ secrets.NOTIFICATION_SMTP_SECURE }}
+      NOTIFICATION_SMTP_USER: ${{ secrets.NOTIFICATION_SMTP_USER }}
+      NOTIFICATION_SMTP_PASS: ${{ secrets.NOTIFICATION_SMTP_PASS }}
+      NOTIFICATION_EMAIL_FROM: ${{ secrets.NOTIFICATION_SMTP_FROM }}
+      NOTIFICATION_EMAIL_TO: ${{ secrets.NOTIFICATION_SMTP_TO }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Validate cloud configuration
+        run: npm run check:env
+
+      - name: Validate PostgreSQL schema
+        run: npm run prisma:cloud:validate
+
+      - name: Generate PostgreSQL Prisma Client
+        run: npm run prisma:cloud:generate
+
+      - name: Deploy PostgreSQL migrations
+        run: npm run prisma:cloud:migrate:deploy
+
+      - name: Run daily pipeline
+        shell: bash
+        env:
+          RUN_DATE: ${{ inputs.runDate }}
+        run: |
+          if [[ -n "$RUN_DATE" ]]; then
+            npm run job:daily:cloud -- --run-date "$RUN_DATE"
+          else
+            npm run job:daily:cloud
+          fi

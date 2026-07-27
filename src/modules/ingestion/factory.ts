@@ -10,7 +10,9 @@ import type { DailySourceAdapter } from "./types";
 
 export function createDailyIngestionService(adapters: DailySourceAdapter[] = []) {
   const env = getEnv();
-  const repository = new PrismaDailyIngestionRepository(prisma);
+  const repository = new PrismaDailyIngestionRepository(prisma, {
+    staleAfterMs: env.DAILY_RUN_STALE_AFTER_MINUTES * 60 * 1000
+  });
   const journalFeedRepository = new PrismaJournalFeedRepository(prisma);
   const builtInAdapters: DailySourceAdapter[] = [
     new BioRxivSourceAdapter({

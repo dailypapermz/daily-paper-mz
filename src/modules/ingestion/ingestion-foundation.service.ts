@@ -10,6 +10,7 @@ import type {
 } from "./types";
 
 const DEFAULT_SOURCES: DailyCandidateSourceValue[] = ["biorxiv", "arxiv", "pubmed", "journal"];
+const INITIAL_INCREMENTAL_LOOKBACK_MS = 7 * 24 * 60 * 60 * 1000;
 
 export class DefaultDailyIngestionService implements DailyIngestionService {
   constructor(
@@ -20,35 +21,51 @@ export class DefaultDailyIngestionService implements DailyIngestionService {
   async runSourceIngestion(input: { source: DailyCandidateSourceValue; runDate?: string }) {
     const adapter = this.getAdapterOrThrow(input.source);
     const window = resolveUtcDayWindow(input.runDate);
-    const runRecord = await this.repository.createRun({
+    const lease = await this.repository.acquireRun({
       source: input.source,
-      runDate: window.runDate
+      runDate: window.dayStart,
+      requestKey: buildDailyRunRequestKey(window.dayStart, [input.source])
     });
+    if (lease.disposition === "already_running") {
+      throw new AppError("DAILY_RUN_ALREADY_RUNNING", `Daily run is already active: ${lease.run.requestKey}`, 409, {
+        runId: lease.run.id
+      });
+    }
+    if (lease.disposition === "already_succeeded") {
+      return {
+        run: lease.run,
+        candidates: await this.repository.listCandidatesByRun(lease.run.id),
+        disposition: lease.disposition
+      };
+    }
+    const runRecord = lease.run;
 
     try {
-      const candidates = await this.fetchValidCandidates(adapter, window);
-      const candidatesCount = await this.repository.saveCandidates({
+      const fetched = await this.fetchCandidates(adapter, window);
+      const candidates = fetched.candidates;
+      const run = await this.repository.finalizeRunSuccess({
         runId: runRecord.id,
         entries: candidates.map((candidate) => ({
           source: input.source,
           candidate
-        }))
-      });
-
-      const run = await this.repository.markRunSucceeded({
-        runId: runRecord.id,
-        candidatesCount
+        })),
+        checkpoints: [{
+          source: input.source,
+          successfulAt: fetched.windowEnd,
+          seenExternalIds: usesFirstSeenIds(input.source) ? fetched.fetchedExternalIds : undefined
+        }]
       });
 
       const persistedCandidates = await this.repository.listCandidatesByRun(runRecord.id);
 
       return {
         run,
-        candidates: persistedCandidates
+        candidates: persistedCandidates,
+        disposition: lease.disposition
       };
     } catch (error) {
       await this.handleRunFailure(runRecord.id, error);
-      throw error;
+      throw withRunId(error, runRecord.id);
     }
   }
 
@@ -56,27 +73,76 @@ export class DefaultDailyIngestionService implements DailyIngestionService {
     runDate?: string;
     sources?: DailyCandidateSourceValue[];
   }) {
-    const sources = input?.sources?.length ? input.sources : DEFAULT_SOURCES;
+    const sources = uniqueSources(input?.sources?.length ? input.sources : DEFAULT_SOURCES);
     const window = resolveUtcDayWindow(input?.runDate);
-    const runRecord = await this.repository.createRun({
+    const lease = await this.repository.acquireRun({
       source: "aggregated",
-      runDate: window.runDate
+      runDate: window.dayStart,
+      requestKey: buildDailyRunRequestKey(window.dayStart, sources, true)
     });
+    if (lease.disposition === "already_running") {
+      throw new AppError("DAILY_RUN_ALREADY_RUNNING", `Daily run is already active: ${lease.run.requestKey}`, 409, {
+        runId: lease.run.id
+      });
+    }
+    if (lease.disposition === "already_succeeded") {
+      const candidates = await this.repository.listCandidatesByRun(lease.run.id);
+      return {
+        run: lease.run,
+        candidates,
+        sourceSummaries: summarizePersistedSources(sources, candidates),
+        disposition: lease.disposition
+      };
+    }
+    const runRecord = lease.run;
 
     const sourceSummaries: AggregatedSourceIngestionSummary[] = [];
     const entries: Array<{ source: DailyCandidateSourceValue; candidate: DailySourceAdapterCandidate }> = [];
+    const successfulFetches: Array<{
+      source: DailyCandidateSourceValue;
+      windowEnd: Date;
+      fetchedExternalIds: string[];
+    }> = [];
     let succeededSourceCount = 0;
 
     try {
-      for (const source of sources) {
+      const outcomes = await Promise.all(sources.map(async (source) => {
         try {
           const adapter = this.getAdapterOrThrow(source);
-          const candidates = await this.fetchValidCandidates(adapter, window);
+          const fetched = await this.fetchCandidates(adapter, window);
+          return { source, fetched } as const;
+        } catch (error) {
+          return { source, error } as const;
+        }
+      }));
+
+      for (const outcome of outcomes) {
+        if ("error" in outcome) {
+          sourceSummaries.push({
+            source: outcome.source,
+            status: "failed",
+            candidatesCount: 0,
+            errorMessage: errorToMessage(outcome.error)
+          });
+          continue;
+        }
+        const { source, fetched } = outcome;
+        const candidates = fetched.candidates;
           succeededSourceCount += 1;
           sourceSummaries.push({
             source,
             status: "success",
-            candidatesCount: candidates.length
+            candidatesCount: candidates.length,
+            fetchedCount: fetched.fetchedCount,
+            filteredCount: fetched.fetchedCount - candidates.length,
+            windowStart: fetched.windowStart.toISOString(),
+            windowEnd: fetched.windowEnd.toISOString(),
+            filterMode: fetched.filterMode
+          });
+          successfulFetches.push({
+            source,
+            windowEnd: fetched.windowEnd,
+            fetchedExternalIds: fetched.fetchedExternalIds
           });
 
           for (const candidate of candidates) {
@@ -85,14 +151,6 @@ export class DefaultDailyIngestionService implements DailyIngestionService {
               candidate
             });
           }
-        } catch (error) {
-          sourceSummaries.push({
-            source,
-            status: "failed",
-            candidatesCount: 0,
-            errorMessage: errorToMessage(error)
-          });
-        }
       }
 
       if (succeededSourceCount === 0) {
@@ -103,14 +161,14 @@ export class DefaultDailyIngestionService implements DailyIngestionService {
         );
       }
 
-      const candidatesCount = await this.repository.saveCandidates({
+      const run = await this.repository.finalizeRunSuccess({
         runId: runRecord.id,
-        entries
-      });
-
-      const run = await this.repository.markRunSucceeded({
-        runId: runRecord.id,
-        candidatesCount
+        entries,
+        checkpoints: successfulFetches.map((fetched) => ({
+          source: fetched.source,
+          successfulAt: fetched.windowEnd,
+          seenExternalIds: usesFirstSeenIds(fetched.source) ? fetched.fetchedExternalIds : undefined
+        }))
       });
 
       const persistedCandidates = await this.repository.listCandidatesByRun(runRecord.id);
@@ -118,16 +176,21 @@ export class DefaultDailyIngestionService implements DailyIngestionService {
       return {
         run,
         candidates: persistedCandidates,
-        sourceSummaries
+        sourceSummaries,
+        disposition: lease.disposition
       };
     } catch (error) {
       await this.handleRunFailure(runRecord.id, error);
-      throw error;
+      throw withRunId(error, runRecord.id);
     }
   }
 
   async getLatestRun(input?: { source?: DailyCandidateSourceValue | "aggregated" }) {
     return this.repository.getLatestRun(input);
+  }
+
+  async getRun(runId: string) {
+    return this.repository.getRun(runId);
   }
 
   private getAdapterOrThrow(source: DailyCandidateSourceValue) {
@@ -142,13 +205,43 @@ export class DefaultDailyIngestionService implements DailyIngestionService {
     return adapter;
   }
 
-  private async fetchValidCandidates(adapter: DailySourceAdapter, window: ReturnType<typeof resolveUtcDayWindow>) {
-    const fetched = await adapter.fetchCandidatesForDay(window);
-    const filtered = fetched
+  private async fetchCandidates(adapter: DailySourceAdapter, dayWindow: ReturnType<typeof resolveUtcDayWindow>) {
+    const cursor = await this.repository.getSourceCursor(adapter.source);
+    const windowEnd = minDate(dayWindow.dayEnd, new Date());
+    const fallbackStart = startOfUtcDate(
+      new Date(windowEnd.getTime() - INITIAL_INCREMENTAL_LOOKBACK_MS)
+    );
+    const watermarkStart = cursor && cursor < windowEnd ? cursor : fallbackStart;
+    const windowStart = adapter.source === "biorxiv" ? fallbackStart : watermarkStart;
+    const window = { ...dayWindow, sourceStart: windowStart, sourceEnd: windowEnd };
+    const fetched = (await adapter.fetchCandidatesForDay(window))
       .map((candidate) => normalizeAdapterCandidate(candidate))
-      .filter((candidate) => isCandidateInUtcDay(candidate, window, adapter.source));
+      .filter((candidate) => candidate.externalId.length > 0);
+    const uniqueFetched = dedupeByExternalId(fetched);
 
-    return dedupeByExternalId(filtered.filter((candidate) => candidate.externalId.length > 0));
+    if (usesFirstSeenIds(adapter.source)) {
+      const seen = await this.repository.listSeenExternalIds(
+        adapter.source,
+        uniqueFetched.map((candidate) => candidate.externalId)
+      );
+      const unseen = uniqueFetched.filter((candidate) => !seen.has(candidate.externalId));
+      const candidates = cursor
+        ? unseen
+        : unseen.filter((candidate) => isCandidateInRange(candidate, windowStart, windowEnd));
+      return makeFetchResult(candidates, uniqueFetched, windowStart, windowEnd, "first_seen");
+    }
+
+    if (adapter.source === "pubmed") {
+      const candidates = uniqueFetched.filter((candidate) =>
+        isCandidateInUtcDay(candidate, dayWindow, adapter.source)
+      );
+      return makeFetchResult(candidates, uniqueFetched, dayWindow.dayStart, dayWindow.dayEnd, "indexed_day");
+    }
+
+    const candidates = uniqueFetched.filter((candidate) =>
+      isCandidateInRange(candidate, windowStart, windowEnd)
+    );
+    return makeFetchResult(candidates, uniqueFetched, windowStart, windowEnd, "watermark");
   }
 
   private async handleRunFailure(runId: string, error: unknown) {
@@ -165,6 +258,82 @@ export class DefaultDailyIngestionService implements DailyIngestionService {
       errorMessage: appError.message
     });
   }
+}
+
+function usesFirstSeenIds(source: DailyCandidateSourceValue) {
+  return source === "biorxiv" || source === "journal";
+}
+
+function withRunId(error: unknown, runId: string) {
+  if (error instanceof AppError) {
+    error.details = { ...error.details, runId };
+    return error;
+  }
+  return new AppError(
+    "INGESTION_RUN_FAILED",
+    error instanceof Error ? error.message : "Unknown ingestion error",
+    500,
+    { runId }
+  );
+}
+
+function isCandidateInRange(
+  candidate: Pick<DailySourceAdapterCandidate, "publishedAt" | "indexedAt">,
+  start: Date,
+  end: Date
+) {
+  const reference = candidate.publishedAt ?? candidate.indexedAt;
+  return Boolean(reference && reference >= start && reference <= end);
+}
+
+function minDate(left: Date, right: Date) {
+  return left <= right ? left : right;
+}
+
+function startOfUtcDate(value: Date) {
+  return new Date(Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate()));
+}
+
+function makeFetchResult(
+  candidates: DailySourceAdapterCandidate[],
+  fetched: DailySourceAdapterCandidate[],
+  windowStart: Date,
+  windowEnd: Date,
+  filterMode: "indexed_day" | "watermark" | "first_seen"
+) {
+  return {
+    candidates,
+    fetchedCount: fetched.length,
+    fetchedExternalIds: fetched.map((candidate) => candidate.externalId),
+    windowStart,
+    windowEnd,
+    filterMode
+  };
+}
+
+export function buildDailyRunRequestKey(
+  runDate: Date,
+  sources: DailyCandidateSourceValue[],
+  aggregated = false
+): string {
+  const day = runDate.toISOString().slice(0, 10);
+  const sourceKey = [...uniqueSources(sources)].sort().join("+");
+  return `daily:v1:${aggregated ? "aggregated:" : ""}${sourceKey}:${day}`;
+}
+
+function uniqueSources(sources: readonly DailyCandidateSourceValue[]): DailyCandidateSourceValue[] {
+  return [...new Set(sources)];
+}
+
+function summarizePersistedSources(
+  requestedSources: DailyCandidateSourceValue[],
+  candidates: Array<{ source: DailyCandidateSourceValue }>
+): AggregatedSourceIngestionSummary[] {
+  return requestedSources.map((source) => ({
+    source,
+    status: "success",
+    candidatesCount: candidates.filter((candidate) => candidate.source === source).length
+  }));
 }
 
 function errorToMessage(error: unknown): string {

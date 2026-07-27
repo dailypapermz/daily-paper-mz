@@ -13,8 +13,14 @@ export function createCandidateOutputService(provider?: CandidateOutputProvider)
     createCandidateOutputProvider({
       apiKey: env.LLM_API_KEY,
       apiBaseUrl: env.LLM_API_BASE_URL,
-      model: env.LLM_MODEL
+      model: env.LLM_MODEL,
+      timeoutMs: env.LLM_TIMEOUT_MS,
+      maxRetries: env.LLM_MAX_RETRIES,
+      concurrency: env.LLM_CONCURRENCY
     });
 
-  return new DefaultCandidateOutputService(repository, resolvedProvider);
+  return new DefaultCandidateOutputService(repository, resolvedProvider, {
+    concurrency: env.LLM_CONCURRENCY,
+    labelCandidateLimit: env.LLM_LABEL_CANDIDATE_LIMIT
+  });
 }

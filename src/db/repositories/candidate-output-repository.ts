@@ -10,16 +10,24 @@ import type {
 export class PrismaCandidateOutputRepository implements CandidateOutputRepository {
   constructor(private readonly db: PrismaClient) {}
 
-  async listCandidatesForGeneration(input: { runId: string; limit: number; selectedOnly?: boolean }) {
-    const rows = input.selectedOnly
-      ? await this.listSelectedCandidatesForGeneration(input.runId, input.limit)
-      : await this.db.dailyCanonicalCandidate.findMany({
-          where: {
-            runId: input.runId
-          },
-          orderBy: [{ mergedSourceCount: "desc" }, { createdAt: "asc" }],
-          take: input.limit
-        });
+  async listCandidatesForGeneration(input: {
+    runId: string;
+    limit?: number;
+    selectedOnly?: boolean;
+    missingOutput?: "labels" | "summary";
+  }) {
+    const selectedIds = input.selectedOnly
+      ? await this.listSelectedCandidateIds(input.runId)
+      : undefined;
+    const rows = await this.db.dailyCanonicalCandidate.findMany({
+      where: {
+        ...(selectedIds ? { id: { in: selectedIds } } : { runId: input.runId }),
+        ...(input.missingOutput === "labels" ? { labels: { none: {} } } : {}),
+        ...(input.missingOutput === "summary" ? { summary: { is: null } } : {})
+      },
+      orderBy: [{ mergedSourceCount: "desc" }, { createdAt: "asc" }],
+      take: input.limit
+    });
 
     return rows.map((row) => ({
       candidateId: row.id,
@@ -33,7 +41,7 @@ export class PrismaCandidateOutputRepository implements CandidateOutputRepositor
     }));
   }
 
-  private async listSelectedCandidatesForGeneration(runId: string, limit: number) {
+  private async listSelectedCandidateIds(runId: string) {
     const latestRerank = await this.db.dailyRerankRun.findFirst({
       where: {
         runId,
@@ -55,13 +63,12 @@ export class PrismaCandidateOutputRepository implements CandidateOutputRepositor
         selected: true
       },
       orderBy: [{ rank: "asc" }],
-      take: limit,
       select: {
-        canonicalCandidate: true
+        canonicalCandidateId: true
       }
     });
 
-    return rows.map((row) => row.canonicalCandidate);
+    return rows.map((row) => row.canonicalCandidateId);
   }
 
   async saveGeneratedOutput(input: {
@@ -69,38 +76,59 @@ export class PrismaCandidateOutputRepository implements CandidateOutputRepositor
     provider: string;
     output: CandidateGeneratedOutput;
   }) {
-    await this.db.$transaction(async (tx) => {
-      const existingSummary = await tx.dailyCandidateSummary.findUnique({
-        where: {
-          canonicalCandidateId: input.candidateId
-        }
-      });
-      if (!existingSummary || existingSummary.provenance === "GENERATED") {
-        await tx.dailyCandidateSummary.upsert({
-          where: {
-            canonicalCandidateId: input.candidateId
-          },
-          create: {
-            canonicalCandidateId: input.candidateId,
-            researchQuestion: input.output.summary.researchQuestion,
-            method: input.output.summary.method,
-            mainFinding: input.output.summary.mainFinding,
-            relevanceToUser: input.output.summary.relevanceToUser,
-            provenance: "GENERATED",
-            provider: input.provider
-          },
-          update: {
-            researchQuestion: input.output.summary.researchQuestion,
-            method: input.output.summary.method,
-            mainFinding: input.output.summary.mainFinding,
-            relevanceToUser: input.output.summary.relevanceToUser,
-            provenance: "GENERATED",
-            provider: input.provider
-          }
-        });
-      }
+    await this.saveGeneratedSummary({
+      candidateId: input.candidateId,
+      provider: input.provider,
+      summary: input.output.summary
+    });
+    await this.saveGeneratedLabels({
+      candidateId: input.candidateId,
+      provider: input.provider,
+      labels: input.output.labels
+    });
+  }
 
-      const contentLabel = input.output.labels.contentRecallLabel?.trim();
+  async saveGeneratedSummary(input: {
+    candidateId: string;
+    provider: string;
+    summary: CandidateSummaryFields;
+  }) {
+    const existingSummary = await this.db.dailyCandidateSummary.findUnique({
+      where: { canonicalCandidateId: input.candidateId }
+    });
+    if (existingSummary && existingSummary.provenance !== "GENERATED") {
+      return;
+    }
+
+    await this.db.dailyCandidateSummary.upsert({
+      where: { canonicalCandidateId: input.candidateId },
+      create: {
+        canonicalCandidateId: input.candidateId,
+        researchQuestion: input.summary.researchQuestion,
+        method: input.summary.method,
+        mainFinding: input.summary.mainFinding,
+        relevanceToUser: input.summary.relevanceToUser,
+        provenance: "GENERATED",
+        provider: input.provider
+      },
+      update: {
+        researchQuestion: input.summary.researchQuestion,
+        method: input.summary.method,
+        mainFinding: input.summary.mainFinding,
+        relevanceToUser: input.summary.relevanceToUser,
+        provenance: "GENERATED",
+        provider: input.provider
+      }
+    });
+  }
+
+  async saveGeneratedLabels(input: {
+    candidateId: string;
+    provider: string;
+    labels: CandidateStructuredLabels;
+  }) {
+    await this.db.$transaction(async (tx) => {
+      const contentLabel = input.labels.contentRecallLabel?.trim();
       if (contentLabel) {
         const existingContentLabel = await tx.dailyCandidateStructuredLabel.findUnique({
           where: {
@@ -135,7 +163,7 @@ export class PrismaCandidateOutputRepository implements CandidateOutputRepositor
         }
       }
 
-      const research = input.output.labels.researchType;
+      const research = input.labels.researchType;
       const hasResearchLabel =
         research && (research.category || research.primaryKeyword || research.secondaryKeyword || research.rawText);
       if (hasResearchLabel) {
