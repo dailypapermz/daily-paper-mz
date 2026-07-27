@@ -1,0 +1,22 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "daily-paper-cloud",
+  "main": ".open-next/worker.js",
+  "compatibility_date": "2026-07-27",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "preview_urls": false,
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS",
+    "run_worker_first": ["/api/*"]
+  },
+  "vars": {
+    "DEPLOYMENT_MODE": "cloud",
+    "DAILY_PAPER_RUNTIME_TARGET": "cloudflare",
+    "NEXT_PUBLIC_DEPLOYMENT_MODE": "cloud"
+  },
+  "observability": {
+    "enabled": true
+  }
+}

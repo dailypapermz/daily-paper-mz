@@ -1,4 +1,5 @@
-import { Prisma, type PrismaClient } from "../../generated/prisma";
+import type { Prisma, PrismaClient } from "../../generated/prisma";
+import { prismaJsonNull } from "../prisma/application-json";
 import { STAGE_ORDER } from "../../modules/pipeline-status/pipeline-stage.service";
 import type {
   DailyPipelineStageValue,
@@ -25,7 +26,7 @@ export class PrismaPipelineStageRepository implements PipelineStageRepository {
           detailsJson:
             stage === "ingestion"
               ? (input.ingestionDetails as Prisma.InputJsonValue)
-              : Prisma.JsonNull
+              : prismaJsonNull
         }))
       });
     });
@@ -51,7 +52,7 @@ export class PrismaPipelineStageRepository implements PipelineStageRepository {
         finishedAt: new Date(),
         detailsJson: input.details
           ? (input.details as Prisma.InputJsonValue)
-          : Prisma.JsonNull
+          : prismaJsonNull
       }
     });
   }

@@ -1,5 +1,5 @@
 ﻿import { getEnv } from "../../lib/config";
-import { prisma } from "../../db/prisma/client";
+import { getApplicationPrismaClient } from "../../db/prisma/application-client";
 import { PrismaDailyIngestionRepository, PrismaJournalFeedRepository } from "../../db/repositories";
 import { ArxivSourceAdapter } from "./arxiv-adapter";
 import { BioRxivSourceAdapter } from "./biorxiv-adapter";
@@ -9,6 +9,7 @@ import { PubmedSourceAdapter } from "./pubmed-adapter";
 import type { DailySourceAdapter } from "./types";
 
 export function createDailyIngestionService(adapters: DailySourceAdapter[] = []) {
+  const prisma = getApplicationPrismaClient();
   const env = getEnv();
   const repository = new PrismaDailyIngestionRepository(prisma, {
     staleAfterMs: env.DAILY_RUN_STALE_AFTER_MINUTES * 60 * 1000

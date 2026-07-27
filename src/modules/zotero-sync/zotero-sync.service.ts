@@ -185,7 +185,7 @@ function selectLibraryVersion(
   return Math.max(...all);
 }
 
-function mapRunSummary(run: {
+export function mapRunSummary(run: {
   id: string;
   mode: "FULL" | "INCREMENTAL";
   status: "RUNNING" | "SUCCESS" | "FAILED";
