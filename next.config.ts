@@ -3,12 +3,9 @@ import path from "node:path";
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  serverExternalPackages: ["@prisma/client", ".prisma/client"],
   webpack(config, { isServer, webpack }) {
     if (isServer && process.env.DAILY_PAPER_RUNTIME_TARGET === "cloudflare") {
-      config.experiments = {
-        ...config.experiments,
-        asyncWebAssembly: true
-      };
       config.plugins.push(
         new webpack.NormalModuleReplacementPlugin(
           /db[\\/]prisma[\\/]application-client$/,
