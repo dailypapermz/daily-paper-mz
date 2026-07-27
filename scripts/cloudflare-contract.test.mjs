@@ -53,7 +53,23 @@ test("Worker build selects the Rust-free Neon client without replacing Node clie
   assert.match(postgresSchema, /generator workerClient[\s\S]*engineType\s*=\s*"client"/);
   assert.match(nextConfig, /edge-application-client\.ts/);
   assert.match(nextConfig, /edge-application-json\.ts/);
+  assert.match(nextConfig, /asyncWebAssembly:\s*true/);
   assert.equal(packageJson.scripts["prisma:cloud:generate"].includes("--generator client"), true);
+});
+
+test("Worker database modules use the generated WASM entrypoint", async () => {
+  const edgeClient = await readFile(
+    new URL("../src/db/prisma/edge-application-client.ts", import.meta.url),
+    "utf8"
+  );
+  const edgeJson = await readFile(
+    new URL("../src/db/prisma/edge-application-json.ts", import.meta.url),
+    "utf8"
+  );
+  assert.match(edgeClient, /prisma-postgresql-worker\/wasm/);
+  assert.match(edgeJson, /prisma-postgresql-worker\/wasm/);
+  assert.doesNotMatch(edgeClient, /from\s+["']\.\.\/\.\.\/generated\/prisma-postgresql-worker["']/);
+  assert.doesNotMatch(edgeJson, /from\s+["']\.\.\/\.\.\/generated\/prisma-postgresql-worker["']/);
 });
 
 test("Cloud-disabled operations declare an application capability guard", async () => {

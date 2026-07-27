@@ -1,5 +1,5 @@
 import { PrismaNeon } from "@prisma/adapter-neon";
-import { PrismaClient as WorkerPrismaClient } from "../../generated/prisma-postgresql-worker";
+import { PrismaClient as WorkerPrismaClient } from "../../generated/prisma-postgresql-worker/wasm";
 
 import type { DatabasePrismaClient } from "./client";
 import { resolveDatabaseRuntime, type DatabaseEnvironment } from "./runtime";

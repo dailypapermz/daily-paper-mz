@@ -5,6 +5,10 @@ const nextConfig: NextConfig = {
   reactStrictMode: true,
   webpack(config, { isServer, webpack }) {
     if (isServer && process.env.DAILY_PAPER_RUNTIME_TARGET === "cloudflare") {
+      config.experiments = {
+        ...config.experiments,
+        asyncWebAssembly: true
+      };
       config.plugins.push(
         new webpack.NormalModuleReplacementPlugin(
           /db[\\/]prisma[\\/]application-client$/,
