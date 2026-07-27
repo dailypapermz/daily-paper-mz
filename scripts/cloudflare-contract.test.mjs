@@ -37,13 +37,15 @@ test("Cloudflare scripts preserve the existing local commands", () => {
 });
 
 test("Wrangler targets a protected OpenNext Worker", () => {
+  assert.match(wrangler, /"name"\s*:\s*"daily-paper"/);
   assert.match(wrangler, /"main"\s*:\s*"\.open-next\/worker\.js"/);
   assert.match(wrangler, /"nodejs_compat"/);
-  assert.match(wrangler, /"workers_dev"\s*:\s*false/);
+  assert.match(wrangler, /"workers_dev"\s*:\s*true/);
   assert.match(wrangler, /"preview_urls"\s*:\s*false/);
   assert.match(wrangler, /"DEPLOYMENT_MODE"\s*:\s*"cloud"/);
   assert.match(wrangler, /"NEXT_PUBLIC_DEPLOYMENT_MODE"\s*:\s*"cloud"/);
   assert.doesNotMatch(wrangler, /DATABASE_URL|ZOTERO_KEY|LLM_API_KEY|@126\.com/);
+  assert.doesNotMatch(wrangler, /ACCESS_JWT_LOCAL_PREVIEW_BYPASS/);
 });
 
 test("Worker build selects the Rust-free Neon client without replacing Node clients", () => {
@@ -113,10 +115,26 @@ test("Linux workerd preview is exercised without production secrets", () => {
   assert.match(previewWorkflow, /node-version: 22/);
   assert.match(previewWorkflow, /npm run cf:build/);
   assert.match(previewWorkflow, /wrangler dev --local --port 8787/);
+  assert.match(previewWorkflow, /ACCESS_JWT_LOCAL_PREVIEW_BYPASS:true/);
   assert.match(previewWorkflow, /cloudflare-preview-smoke\.mjs/);
   assert.doesNotMatch(previewWorkflow, /secrets\.|DATABASE_URL/);
   assert.match(previewSmoke, /CAPABILITY_UNAVAILABLE_IN_CLOUD/);
   assert.match(previewSmoke, /UNSUPPORTED_MEDIA_TYPE/);
   assert.match(previewSmoke, /ORIGIN_MISMATCH/);
   assert.match(previewSmoke, /PAYLOAD_TOO_LARGE/);
+});
+
+test("Cloud dashboard and APIs validate Access JWTs in the Worker", async () => {
+  const middleware = await readFile(new URL("../middleware.ts", import.meta.url), "utf8");
+  const verifier = await readFile(
+    new URL("../src/lib/http/cloudflare-access.ts", import.meta.url),
+    "utf8"
+  );
+  assert.match(middleware, /\/api\/health\/live/);
+  assert.match(middleware, /verifyCloudflareAccess/);
+  assert.match(verifier, /cf-access-jwt-assertion/i);
+  assert.match(verifier, /createRemoteJWKSet/);
+  assert.match(verifier, /issuer: input\.teamDomain/);
+  assert.match(verifier, /audience: input\.audience/);
+  assert.match(verifier, /ACCESS_ALLOWED_EMAIL/);
 });

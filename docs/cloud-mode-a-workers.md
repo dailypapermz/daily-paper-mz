@@ -57,12 +57,14 @@ The repository also includes `.github/workflows/cloudflare-preview.yml`. It buil
 
 1. Create a Worker deployment using this repository and `wrangler.jsonc`.
 2. Add the pooled Neon runtime URL with `npx wrangler secret put DATABASE_URL`.
-3. Configure a custom hostname. `workers_dev=false` and `preview_urls=false` prevent an unprotected default hostname from bypassing Access.
-4. Create a Cloudflare Access self-hosted application covering the custom hostname and every path.
-5. Allow only the intended Cloudflare account member/owner identity. Configure the actual identity in Cloudflare, never in source. Do not use `Everyone`, arbitrary valid email, or a public-domain allow rule.
-6. Protect the dashboard, APIs, and `/api/health/ready`.
-7. If public liveness is required, configure a separate exact-path policy only for `/api/health/live`.
-8. Deploy only after Access and the custom hostname are ready with `npm run cf:deploy`.
+3. Deploy the Worker named `daily-paper`. With `workers_dev=true`, its first-release URL is `https://daily-paper.<account-subdomain>.workers.dev`. `preview_urls=false` remains explicit so no per-version preview hostname becomes a bypass.
+4. In Workers & Pages, select `daily-paper`, open **Settings > Domains & Routes**, and click **Enable Cloudflare Access** for the production `workers.dev` route.
+5. In the generated Access policy, allow only the intended owner email. Configure the actual address in Cloudflare, never in source. Do not add `Everyone`, arbitrary valid email, or a public-domain allow rule to the protected application.
+6. Copy the Access application audience tag and configure Worker variables `POLICY_AUD`, `TEAM_DOMAIN` (`https://<team-name>.cloudflareaccess.com`), and `ACCESS_ALLOWED_EMAIL`. The address is deployment data and must not be committed.
+7. Keep the dashboard, APIs, and `/api/health/ready` protected. Configure a separate exact public destination/exception only for `/api/health/live` when public liveness is required.
+8. Deploy with `npm run cf:deploy`, then verify both the outer Access policy and the Worker's application-level JWT validation.
+
+Cloudflare's one-click Workers Access feature is supported directly on production `workers.dev` routes. The application does not rely on that outer route alone: middleware validates `Cf-Access-Jwt-Assertion` against the account JWKS, expected issuer, application audience, and configured owner email. Missing Access variables, a missing/invalid token, or an unexpected email fails closed with a sanitized 403.
 
 The daily workflow does not call the Worker, so PR 4 adds no Cloudflare service token. A later headless client or monitor must use a dedicated Access service token rather than a browser cookie.
 
@@ -89,8 +91,12 @@ No route emits permissive CORS headers. Cloud writes require JSON, a matching `O
 
 ## Secrets, acceptance, and rollback
 
-The Worker requires only `DATABASE_URL`. It does not receive Zotero, LLM, SMTP, WeCom, Obsidian, Windows, or daily-job secrets.
+The Worker requires the `DATABASE_URL` secret plus non-secret Access values `POLICY_AUD` and `TEAM_DOMAIN`; `ACCESS_ALLOWED_EMAIL` should be treated as private deployment configuration. It does not receive Zotero, LLM, SMTP, WeCom, Obsidian, Windows, or daily-job secrets.
 
 Before deploy, run the full repository checks plus `cf:build`, `cf:preview`, and `test:cloudflare`. A real preview with a disposable PostgreSQL database must exercise recommendations, feedback persistence, liveness, readiness success/failure, and sequential requests. Without credentials, record these as not executed rather than passed.
 
-Rollback the Worker to the last verified Cloudflare version or detach the custom route while retaining Access deny rules. Worker rollback does not reverse PostgreSQL migrations.
+Rollback the Worker to the last verified Cloudflare version or disable its production `workers.dev` route while retaining Access deny rules. Worker rollback does not reverse PostgreSQL migrations.
+
+## Later custom-domain migration
+
+A custom domain is optional for the first personal instance. To add one later, configure a Worker Custom Domain, place the same Access owner-only policy in front of it, update `NOTIFICATION_DASHBOARD_URL`, and retest Origin/JWT boundaries. The Worker code, Neon schema, daily workflow, recommendations, and feedback data do not change. Keep the `workers.dev` route Access-protected during transition, then set `workers_dev=false` only after the custom hostname is verified so it cannot remain as a bypass.

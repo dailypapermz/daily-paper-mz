@@ -1,8 +1,8 @@
 # Cloud Mode A migration plan
 
-Implementation update (2026-07-27): PR 4 is implemented in the isolated Cloud Mode branch. Production account deployment and credentialed Neon/Cloudflare acceptance remain pending; Obsidian plugin work has not started.
+Implementation update (2026-07-27): PR 4 is merged. The first release uses an Access-protected production `workers.dev` route with preview URLs disabled; production account deployment and credentialed Neon/Cloudflare acceptance remain pending. Obsidian plugin work has not started.
 
-Status: PR 1–PR 3 approved and implemented on the Cloud Mode A branch. PR 4 remains out of scope until separately approved.
+Status: PR 1–PR 4 are approved, implemented, and merged. Production account deployment and credentialed acceptance remain in progress.
 
 ## Guardrails
 
@@ -176,7 +176,7 @@ Work includes:
 - log-redaction tests, including transformed/URL-encoded credentials;
 - no permissive CORS;
 - authenticated journal administration plus SSRF protection for feed URLs: HTTPS/hostname policy, private/link-local/metadata/IPv6 rejection, DNS and every redirect revalidation, response size/type/time limits, and focused bypass tests;
-- Access protection verified before the first production route becomes reachable.
+- Access protection and application-level JWT validation verified before accepting the production `workers.dev` route.
 
 Rollback: block public routes at Access first, then revert application changes. Never temporarily expose the unauthenticated Worker to debug it.
 
