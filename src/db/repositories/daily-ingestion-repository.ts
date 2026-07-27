@@ -11,13 +11,19 @@ import type {
 
 export class PrismaDailyIngestionRepository implements DailyIngestionRepository {
   private readonly staleAfterMs: number;
+  private readonly finalizeTransactionTimeoutMs: number;
   private readonly now: () => Date;
 
   constructor(
     private readonly db: PrismaClient,
-    options?: { staleAfterMs?: number; now?: () => Date }
+    options?: {
+      staleAfterMs?: number;
+      finalizeTransactionTimeoutMs?: number;
+      now?: () => Date;
+    }
   ) {
     this.staleAfterMs = options?.staleAfterMs ?? 180 * 60 * 1000;
+    this.finalizeTransactionTimeoutMs = options?.finalizeTransactionTimeoutMs ?? 60_000;
     this.now = options?.now ?? (() => new Date());
   }
 
@@ -164,7 +170,7 @@ export class PrismaDailyIngestionRepository implements DailyIngestionRepository 
         }
       });
       return mapRunSummary(run);
-    });
+    }, { timeout: this.finalizeTransactionTimeoutMs });
   }
 
   async markRunFailed(input: { runId: string; errorMessage: string }) {
