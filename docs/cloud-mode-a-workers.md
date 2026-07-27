@@ -37,7 +37,7 @@ Do not use a production database for destructive tests. `cf:preview` remains act
 
 ### Current acceptance status
 
-The repository build and static Worker contract checks pass on the current Windows development machine. Native `cf:preview` is not accepted here: `workerd` exited with Windows access-violation status `0xc0000005` under the installed Node runtime, while a Node 22 retry did not start a listener and had to be stopped after the wrapper stalled. This is recorded as an environment limitation, not as a successful Cloudflare runtime test.
+The repository build and static Worker contract checks pass on the current Windows development machine. Native `cf:preview` is not accepted on Windows: `workerd` exited with access-violation status `0xc0000005` under the installed Node runtime, while a Node 22 retry did not start a listener and had to be stopped after the wrapper stalled. Linux runtime acceptance passed in GitHub Actions run `30249599589`: OpenNext built on `ubuntu-latest`, workerd started, the dashboard rendered, liveness returned 200, readiness failed safely without a database binding, Cloud-disabled job routes returned the capability contract, and mutation guards rejected non-JSON, wrong-origin, and oversized requests.
 
 No `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, or disposable Neon test URL was available, so no remote Worker deploy, Access policy, readiness query, or persisted feedback write was executed. Perform the remaining acceptance from Linux or a GitHub-hosted Ubuntu runner with a disposable PostgreSQL database:
 
@@ -51,7 +51,7 @@ npm run cf:preview
 
 Then verify `/api/health/live`, Access-protected `/api/health/ready`, recommendation reads, a feedback write, a second sequential request, and rollback before approving production deployment.
 
-The repository also includes `.github/workflows/cloudflare-preview.yml`. It builds the OpenNext artifact on `ubuntu-latest`, launches local workerd, and verifies liveness, sanitized readiness failure, Cloud-disabled job routes, wrong-origin rejection, JSON-only writes, and the request-size limit without loading production Secrets. This resolves the native Windows `workerd` gap once its GitHub check passes; database-backed production acceptance remains separate.
+The repository also includes `.github/workflows/cloudflare-preview.yml`. It builds the OpenNext artifact on `ubuntu-latest`, launches local workerd, and verifies liveness, sanitized readiness failure, Cloud-disabled job routes, wrong-origin rejection, JSON-only writes, and the request-size limit without loading production Secrets. This resolves the native Windows `workerd` gap; database-backed production acceptance remains separate.
 
 ## Cloudflare configuration
 
