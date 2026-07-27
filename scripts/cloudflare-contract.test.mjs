@@ -135,6 +135,8 @@ test("Linux workerd preview is exercised without production secrets", () => {
   assert.match(previewWorkflow, /wrangler dev --local --port 8787/);
   assert.match(previewWorkflow, /ACCESS_JWT_LOCAL_PREVIEW_BYPASS:true/);
   assert.match(previewWorkflow, /cloudflare-preview-smoke\.mjs/);
+  assert.match(previewWorkflow, /cloudflare-worker-\$\{\{ github\.sha \}\}/);
+  assert.match(previewWorkflow, /retention-days:\s*1/);
   assert.doesNotMatch(previewWorkflow, /secrets\.|DATABASE_URL/);
   assert.match(previewSmoke, /CAPABILITY_UNAVAILABLE_IN_CLOUD/);
   assert.match(previewSmoke, /UNSUPPORTED_MEDIA_TYPE/);
