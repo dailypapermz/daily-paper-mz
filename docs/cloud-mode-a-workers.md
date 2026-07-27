@@ -66,6 +66,8 @@ The repository also includes `.github/workflows/cloudflare-preview.yml`. It buil
 
 Cloudflare's one-click Workers Access feature is supported directly on production `workers.dev` routes. The application does not rely on that outer route alone: middleware validates `Cf-Access-Jwt-Assertion` against the account JWKS, expected issuer, application audience, and configured owner email. Missing Access variables, a missing/invalid token, or an unexpected email fails closed with a sanitized 403.
 
+Worker Static Assets use `run_worker_first=true`, so prerendered dashboard HTML and other static application assets cannot bypass the Next middleware. The middleware source lives at `src/middleware.ts`, matching this repository's `src/app` layout.
+
 The daily workflow does not call the Worker, so PR 4 adds no Cloudflare service token. A later headless client or monitor must use a dedicated Access service token rather than a browser cookie.
 
 ## API capability matrix

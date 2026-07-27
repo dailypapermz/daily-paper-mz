@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({ verify: vi.fn() }));
 
-vi.mock("./src/lib/http/cloudflare-access", () => ({
+vi.mock("./lib/http/cloudflare-access", () => ({
   verifyCloudflareAccess: mocks.verify
 }));
 

@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 
-import { verifyCloudflareAccess } from "./src/lib/http/cloudflare-access";
+import { verifyCloudflareAccess } from "./lib/http/cloudflare-access";
 
 export async function middleware(request: NextRequest) {
   if (
