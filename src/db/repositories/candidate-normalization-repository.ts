@@ -103,7 +103,7 @@ export class PrismaCandidateNormalizationRepository implements CandidateNormaliz
           }
         });
       }
-    });
+    }, { timeout: 60_000 });
   }
 
   async listCanonicalCandidates(runId: string): Promise<CanonicalDailyCandidateRecord[]> {
