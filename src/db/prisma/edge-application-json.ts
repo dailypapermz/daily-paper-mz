@@ -1,3 +1,3 @@
-import { Prisma } from "../../generated/prisma-postgresql-worker";
+import { Prisma } from "@prisma/client";
 
 export const prismaJsonNull = Prisma.JsonNull;

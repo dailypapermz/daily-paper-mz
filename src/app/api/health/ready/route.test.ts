@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({ getClient: vi.fn(), query: vi.fn(), release: vi.fn() }));
 
@@ -10,10 +10,17 @@ vi.mock("../../../../db/prisma/application-client", () => ({
 import { GET } from "./route";
 
 describe("GET /api/health/ready", () => {
+  let errorSpy: ReturnType<typeof vi.spyOn>;
+
   beforeEach(() => {
     mocks.query.mockReset();
     mocks.release.mockReset().mockResolvedValue(undefined);
     mocks.getClient.mockReset().mockReturnValue({ $queryRawUnsafe: mocks.query });
+    errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    errorSpy.mockRestore();
   });
 
   it("reports readiness after a database query", async () => {
@@ -25,10 +32,20 @@ describe("GET /api/health/ready", () => {
   });
 
   it("sanitizes unavailable database errors", async () => {
-    mocks.query.mockRejectedValue(new Error("postgresql://secret@example"));
+    const databaseError = Object.assign(new Error("postgresql://secret@example"), {
+      code: "P1001"
+    });
+    mocks.query.mockRejectedValue(databaseError);
     const response = await GET();
     expect(response.status).toBe(503);
     expect(JSON.stringify(await response.json())).not.toContain("secret");
+    expect(errorSpy).toHaveBeenCalledWith(JSON.stringify({
+      event: "database_readiness_failed",
+      phase: "query",
+      errorName: "Error",
+      errorCode: "P1001"
+    }));
+    expect(errorSpy.mock.calls.flat().join(" ")).not.toContain("secret");
   });
 
   it("sanitizes database-client construction errors", async () => {
@@ -42,5 +59,11 @@ describe("GET /api/health/ready", () => {
       code: "DATABASE_UNAVAILABLE"
     });
     expect(mocks.release).not.toHaveBeenCalled();
+    expect(errorSpy).toHaveBeenCalledWith(JSON.stringify({
+      event: "database_readiness_failed",
+      phase: "client",
+      errorName: "Error"
+    }));
+    expect(errorSpy.mock.calls.flat().join(" ")).not.toContain("secret");
   });
 });

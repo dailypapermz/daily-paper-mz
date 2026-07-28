@@ -4,9 +4,7 @@ generator client {
 }
 
 generator workerClient {
-  provider   = "prisma-client-js"
-  output     = "../../src/generated/prisma-postgresql-worker"
-  engineType = "client"
+  provider = "prisma-client-js"
 }
 
 datasource db {

@@ -49,11 +49,28 @@ test("Wrangler targets a protected OpenNext Worker", () => {
   assert.doesNotMatch(wrangler, /ACCESS_JWT_LOCAL_PREVIEW_BYPASS/);
 });
 
-test("Worker build selects the Rust-free Neon client without replacing Node clients", () => {
-  assert.match(postgresSchema, /generator workerClient[\s\S]*engineType\s*=\s*"client"/);
+test("Worker build selects the OpenNext-patchable Neon client without replacing Node clients", () => {
+  const workerGenerator = postgresSchema.match(/generator workerClient\s*\{([\s\S]*?)\}/)?.[1] ?? "";
+  assert.doesNotMatch(workerGenerator, /output\s*=/);
+  assert.doesNotMatch(workerGenerator, /engineType\s*=/);
   assert.match(nextConfig, /edge-application-client\.ts/);
   assert.match(nextConfig, /edge-application-json\.ts/);
+  assert.match(nextConfig, /serverExternalPackages:\s*\["@prisma\/client",\s*"\.prisma\/client"\]/);
   assert.equal(packageJson.scripts["prisma:cloud:generate"].includes("--generator client"), true);
+});
+
+test("Worker database modules use the OpenNext-patchable Prisma package", async () => {
+  const edgeClient = await readFile(
+    new URL("../src/db/prisma/edge-application-client.ts", import.meta.url),
+    "utf8"
+  );
+  const edgeJson = await readFile(
+    new URL("../src/db/prisma/edge-application-json.ts", import.meta.url),
+    "utf8"
+  );
+  assert.match(edgeClient, /from\s+["']@prisma\/client["']/);
+  assert.match(edgeJson, /from\s+["']@prisma\/client["']/);
+  assert.doesNotMatch(edgeClient + edgeJson, /prisma-postgresql-worker/);
 });
 
 test("Cloud-disabled operations declare an application capability guard", async () => {
@@ -118,6 +135,8 @@ test("Linux workerd preview is exercised without production secrets", () => {
   assert.match(previewWorkflow, /wrangler dev --local --port 8787/);
   assert.match(previewWorkflow, /ACCESS_JWT_LOCAL_PREVIEW_BYPASS:true/);
   assert.match(previewWorkflow, /cloudflare-preview-smoke\.mjs/);
+  assert.match(previewWorkflow, /cloudflare-worker-\$\{\{ github\.sha \}\}/);
+  assert.match(previewWorkflow, /retention-days:\s*1/);
   assert.doesNotMatch(previewWorkflow, /secrets\.|DATABASE_URL/);
   assert.match(previewSmoke, /CAPABILITY_UNAVAILABLE_IN_CLOUD/);
   assert.match(previewSmoke, /UNSUPPORTED_MEDIA_TYPE/);
