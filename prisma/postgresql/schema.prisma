@@ -820,7 +820,7 @@ model DailyRecommendationResult {
   recencyScore            Float
   reasonsJson             Json
   featureWeightsJson      Json
-  featureAvailabilityJson Json                    @default(dbgenerated("'{}'"))
+  featureAvailabilityJson Json                    @default("{}")
   createdAt               DateTime                @default(now())
   rerankRun               DailyRerankRun          @relation(fields: [rerankRunId], references: [id], onDelete: Cascade)
   canonicalCandidate      DailyCanonicalCandidate @relation(fields: [canonicalCandidateId], references: [id], onDelete: Cascade)

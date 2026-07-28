@@ -111,8 +111,8 @@ test("the immutable PostgreSQL baseline and incremental pipeline migrations matc
   assert.match(migration, /JSONB/);
   assert.doesNotMatch(migration, /PRAGMA|AUTOINCREMENT/);
   assert.equal(
-    createHash("sha256").update(migration).digest("hex"),
-    "2125e4593300cbdecb2ca5978a42a9a7c80d0ef5c387ff75de9c7b33891978f6"
+    createHash("sha256").update(migration.replaceAll("\r\n", "\n")).digest("hex"),
+    "512588416548c90c6c721e70572c95902f964f7ea053fc2c27fc096ac0f50fee"
   );
   assert.match(outcomeMigration, /CREATE TYPE "DailyPipelineRunStatus" AS ENUM/);
   assert.match(outcomeMigration, /ADD COLUMN "pipelineStatus"/);
