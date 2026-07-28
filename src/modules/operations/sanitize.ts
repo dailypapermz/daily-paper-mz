@@ -5,7 +5,7 @@ const MAX_ARRAY_ITEMS = 50;
 const MAX_OBJECT_KEYS = 50;
 const MAX_DEPTH = 5;
 
-const SENSITIVE_KEY = /(?:authorization|cookie|credential|password|passwd|secret|token|api[_-]?key|webhook|private[_-]?key|access[_-]?key)/i;
+const SENSITIVE_KEY = /(?:authorization|cookie|credential|password|passwd|secret|token|api[_-]?key|webhook|signature|(?:^|[_-])sig(?:$|[_-])|private[_-]?key|access[_-]?key)/i;
 
 export function sanitizeOperationsError(value: unknown): string | undefined {
   if (typeof value !== "string" || !value.trim()) return undefined;
@@ -46,30 +46,49 @@ function sanitizeString(input: string): string {
     .replace(/\bBearer\s+[^\s,;]+/gi, `Bearer ${REDACTED}`)
     .replace(/\b(?:ghp_|github_pat_|sk-)[A-Za-z0-9_-]{8,}\b/g, REDACTED)
     .replace(
-      /\b([A-Za-z0-9_-]*(?:token|secret|password|passwd|credential|api[_-]?key|webhook)[A-Za-z0-9_-]*)\s*[:=]\s*(?:"[^"]*"|'[^']*'|[^\s,;]+)/gi,
+      /\b((?:[A-Za-z0-9_-]*(?:token|secret|password|passwd|credential|api[_-]?key|webhook|signature)[A-Za-z0-9_-]*)|sig)\s*[:=]\s*(?:"[^"]*"|'[^']*'|[^\s,;]+)/gi,
       `$1=${REDACTED}`
     )
     .replace(/\b(?:postgres(?:ql)?|mysql):\/\/[^\s]+/gi, "[database url]")
+    .replace(/\bfile:\/\/[^\s,;]+/gi, "[local path]")
     .replace(/\bhttps?:\/\/[^\s]+/gi, sanitizeUrl)
     .replace(/\b[A-Z]:\\Users\\[^\\\s]+\\[^\s]*/gi, "[local path]")
     .replace(/\b[A-Z]:\\[^\s]*/gi, "[local path]")
+    .replace(/\\\\[^\\\s]+\\[^\s,;]+/g, "[local path]")
+    .replace(/\/(?:home|Users)\/[^\s,;]+/g, "[local path]")
     .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "[email]");
 }
 
 function sanitizeUrl(match: string): string {
   try {
     const url = new URL(match);
-    if (url.username || url.password) {
-      url.username = REDACTED;
-      url.password = "";
-    }
-    for (const key of Array.from(url.searchParams.keys())) {
-      if (SENSITIVE_KEY.test(key)) url.searchParams.set(key, REDACTED);
-    }
-    return url.toString();
+    if (isPrivateOrLocalHost(url.hostname)) return REDACTED;
+    // Paths, queries, fragments, and user info frequently contain webhook tokens,
+    // signatures, repository names, or other personal data. The public origin is
+    // enough to identify the unavailable provider without exposing those values.
+    return url.origin;
   } catch {
     return "[url]";
   }
+}
+
+function isPrivateOrLocalHost(hostname: string): boolean {
+  const normalized = hostname.toLowerCase().replace(/^\[|\]$/g, "").replace(/\.$/, "");
+  if (!normalized || normalized.includes(":")) return true;
+  if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(normalized)) return true;
+  if (!normalized.includes(".")) return true;
+  return normalized === "localhost" ||
+    normalized.endsWith(".localhost") ||
+    normalized.endsWith(".local") ||
+    normalized.endsWith(".internal") ||
+    normalized.endsWith(".lan") ||
+    normalized.endsWith(".home") ||
+    normalized.endsWith(".corp") ||
+    normalized.endsWith(".private") ||
+    normalized.endsWith(".test") ||
+    normalized.endsWith(".example") ||
+    normalized.endsWith(".arpa") ||
+    normalized.endsWith(".invalid");
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
