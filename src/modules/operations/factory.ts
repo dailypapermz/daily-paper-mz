@@ -1,16 +1,28 @@
 import { getApplicationPrismaClient } from "../../db/prisma/application-client";
-import { getEnv } from "../../lib/config";
 import { PrismaOperationsRepository } from "../../db/repositories/operations-repository";
 import { GitHubOperationsDispatcher } from "./github-dispatcher";
-import { OperationsService } from "./operations.service";
+import {
+  OPERATIONS_PIPELINE_STALE_AFTER_MS,
+  OperationsService
+} from "./operations.service";
 
 export function createOperationsService() {
-  const env = getEnv();
   return new OperationsService(new PrismaOperationsRepository(getApplicationPrismaClient()), {
-    pipelineStaleAfterMs: env.DAILY_RUN_STALE_AFTER_MINUTES * 60 * 1000
+    pipelineStaleAfterMs: resolveOperationsPipelineStaleAfterMs()
   });
 }
 
 export function createOperationsDispatcher() {
   return new GitHubOperationsDispatcher();
+}
+
+export function resolveOperationsPipelineStaleAfterMs(
+  environment: Readonly<Record<string, string | undefined>> = process.env
+): number {
+  const rawMinutes = environment.DAILY_RUN_STALE_AFTER_MINUTES?.trim();
+  if (!rawMinutes || !/^\d+$/.test(rawMinutes)) return OPERATIONS_PIPELINE_STALE_AFTER_MS;
+  const milliseconds = Number(rawMinutes) * 60 * 1000;
+  return Number.isSafeInteger(milliseconds) && milliseconds > 0
+    ? milliseconds
+    : OPERATIONS_PIPELINE_STALE_AFTER_MS;
 }
