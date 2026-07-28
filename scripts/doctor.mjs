@@ -159,6 +159,21 @@ export async function inspectProject({
       : check("error", "smtp", "NOTIFICATION_SMTP_PORT must be an integer from 1 to 65535."));
   }
 
+  const operationsKeys = [
+    "OPERATIONS_GITHUB_OWNER",
+    "OPERATIONS_GITHUB_REPO",
+    "OPERATIONS_GITHUB_TOKEN",
+    "OPERATIONS_GITHUB_REF"
+  ];
+  const operationsConfigured = operationsKeys.filter((key) => hasValue(env, key));
+  if (operationsConfigured.length === 0) {
+    checks.push(check("warn", "operations_dispatch", "Operations retry dispatch is not configured (optional)."));
+  } else if (operationsConfigured.length !== operationsKeys.length) {
+    checks.push(check("error", "operations_dispatch", "Operations retry dispatch fields must be configured as a complete set."));
+  } else {
+    checks.push(check("ready", "operations_dispatch", "Operations retry dispatch configuration is complete."));
+  }
+
   if (mode === "local") {
     validateInteger(checks, env, "SCHEDULER_DAILY_UTC_HOUR", "scheduler_daily_hour", 0, 23, 0);
     validateInteger(checks, env, "SCHEDULER_MONTHLY_UTC_DAY", "scheduler_monthly_day", 1, 31, 1);

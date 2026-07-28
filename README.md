@@ -104,20 +104,22 @@ OpenNext can deploy the dashboard and short interactive APIs to Cloudflare Worke
 
 ```text
 npm run cf:typegen
-npm run test:cloudflare
 npm run cf:build
+npm run test:cloudflare
 npm run cf:preview
 npm run cf:deploy
 ```
 
-Before deployment, add `DATABASE_URL` as a Worker secret and enable Cloudflare Access on the production `daily-paper.<account-subdomain>.workers.dev` route. The committed Wrangler config enables only the production `workers.dev` URL; preview URLs remain disabled. The Worker also validates the Access JWT issuer, audience, signature, and configured owner email. Only `/api/health/live` may receive an exact public Access exception; readiness and every dashboard/API route remain protected. A later custom domain changes routing and Access configuration, not application or database code. See [Workers deployment](docs/cloud-mode-a-workers.md) and the [dependency audit](docs/cloud-mode-a-dependency-audit.md).
+Before deployment, add `DATABASE_URL` as a Worker secret and enable Cloudflare Access on the production `daily-paper.<account-subdomain>.workers.dev` route. The committed Wrangler config enables only the production `workers.dev` URL; preview URLs remain disabled. The Worker also validates the Access JWT issuer, audience, signature, and configured owner email. Only `/api/health/live` may receive an exact public Access exception; readiness and every dashboard/API route remain protected. A later custom domain changes routing and Access configuration, not application or database code. See [Workers deployment](docs/cloud-mode-a-workers.md), the [original dependency audit](docs/cloud-mode-a-dependency-audit.md), and the [v0.2 dependency risk register](docs/production-dependency-risk.md).
+
+The Access-protected `/operations` page and `/api/operations/runs` show recent persisted daily runs, stage outcomes, source degradation, timestamps, sanitized errors, and retry eligibility. Optional retry/resume dispatch requires `OPERATIONS_GITHUB_OWNER`, `OPERATIONS_GITHUB_REPO`, `OPERATIONS_GITHUB_REF`, and the Worker secret `OPERATIONS_GITHUB_TOKEN`. Use a fine-grained token restricted to this repository with Actions write permission. The API accepts only a stored retryable `runId`, checks its fixed daily request key, and dispatches the fixed `daily.yml` with the stored `runDate`; it cannot execute shell commands, delete history, or create a different idempotency key.
 
 ## Validation Commands
 - tests: `npm run test`
 - typecheck: `npm run typecheck`
 - production build: `npm run build`
-- Cloudflare contract: `npm run test:cloudflare`
 - OpenNext Worker build: `npm run cf:build`
+- Cloudflare generated-artifact contract: `npm run test:cloudflare` (run after `cf:build`)
 
 If `next build` fails in Windows sandboxed environments with `EPERM ... Application Data`, run build with an isolated home/profile:
 

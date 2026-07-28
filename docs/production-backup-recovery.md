@@ -349,8 +349,9 @@ Rotate other potentially exposed secrets one provider at a time, keeping old and
 | Cloudflare API token/account ID | Deployment secret store or operator secret manager | Least-privilege identity can inspect/deploy only the intended account and Worker |
 | Cloudflare Access service tokens | Cloudflare Zero Trust and authorized headless clients | New token passes the intended Access application; old token fails after revocation |
 | Access audience/team domain/owner identity | Worker variables plus Cloudflare Access policy | Wrong audience/email fails closed; intended owner passes; no `Everyone` or public-domain allow rule exists |
+| Operations GitHub token | Worker secret `OPERATIONS_GITHUB_TOKEN` | Fine-grained token is repository-scoped with Actions write only; an approved retry dispatches the fixed `daily.yml`, then the old token is revoked |
 
-The current Worker should receive only `DATABASE_URL` plus its Access/runtime configuration. Zotero, LLM, SMTP, WeCom, Obsidian, and Windows scheduler secrets remain outside the Worker.
+The current Worker should receive `DATABASE_URL`, its Access/runtime configuration, and—only when Operations retry is enabled—the repository-scoped `OPERATIONS_GITHUB_TOKEN` secret plus non-secret owner/repository/ref variables. Zotero, LLM, SMTP, WeCom, Obsidian, and Windows scheduler secrets remain outside the Worker.
 
 ## 6. Application and deployment rollback
 
