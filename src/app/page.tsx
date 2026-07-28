@@ -55,6 +55,13 @@ type RecommendationFeed = {
   recommendations: Recommendation[];
 };
 
+type OperationsBannerRun = {
+  runDate: string;
+  status: "running" | "complete" | "complete_with_warnings" | "partial" | "failed" | "unknown";
+  sourceDegradation: { degraded: boolean };
+  errorSummary?: string;
+};
+
 type LabelEditState = {
   contentRecallLabel: string;
   category: "" | "method" | "biology" | "resource" | "benchmark";
@@ -75,6 +82,26 @@ export default function HomePage() {
   const [exportState, setExportState] = useState<string | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
   const [refreshTick, setRefreshTick] = useState(0);
+  const [operationsRun, setOperationsRun] = useState<OperationsBannerRun | null>(null);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    async function loadOperationsStatus() {
+      try {
+        const response = await fetch("/api/operations/runs?limit=1", {
+          cache: "no-store",
+          signal: controller.signal
+        });
+        if (!response.ok) return;
+        const payload = await response.json() as { runs?: OperationsBannerRun[] };
+        setOperationsRun(payload.runs?.[0] ?? null);
+      } catch {
+        // Operations health is supplemental and must not hide the recommendation feed.
+      }
+    }
+    void loadOperationsStatus();
+    return () => controller.abort();
+  }, [refreshTick]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -304,11 +331,25 @@ export default function HomePage() {
           <p className="subtitle">Browse and triage today&apos;s personalized paper recommendations.</p>
         </div>
         <div className="header-links">
+          <a href="/operations">Operations</a>
           <a href="/collections">Collection Priorities</a>
           <a href="/journals">Journal Pool</a>
           <a href="/api/recommendations/daily">Feed API</a>
         </div>
       </header>
+
+      {operationsRun ? (
+        <aside
+          className={`operations-banner status-${operationsRun.status}`}
+          aria-label="Latest daily pipeline status"
+        >
+          <span>
+            Daily run {operationsRun.runDate}: {operationsRun.status.replaceAll("_", " ")}
+            {operationsRun.sourceDegradation.degraded ? " · source degradation detected" : ""}
+          </span>
+          <a href="/operations">View operations</a>
+        </aside>
+      ) : null}
 
       <section className="controls">
         <label>

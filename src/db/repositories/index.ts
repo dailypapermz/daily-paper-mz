@@ -16,3 +16,4 @@ export { PrismaRecallRankingRepository } from "./recall-ranking-repository";
 export { PrismaRerankRepository } from "./rerank-repository";
 export { PrismaDailyRecommendationRepository } from "./daily-recommendations-repository";
 export { PrismaFeedbackLogRepository } from "./feedback-log-repository";
+export { PrismaOperationsRepository } from "./operations-repository";
