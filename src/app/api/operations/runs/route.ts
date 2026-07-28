@@ -6,6 +6,7 @@ import {
   createOperationsService,
   OPERATIONS_DEFAULT_LIMIT,
   OPERATIONS_MAX_LIMIT,
+  sanitizeOperationsError,
   type OperationsAccessVerifier
 } from "../../../../modules/operations";
 
@@ -50,7 +51,11 @@ export async function handleOperationsRuns(
       { status: "ok", runs },
       { headers: noStoreHeaders() }
     );
-  } catch {
+  } catch (error) {
+    console.error("Operations runs read failed", {
+      name: sanitizeOperationsError(error instanceof Error ? error.name : "UnknownError"),
+      message: sanitizeOperationsError(error instanceof Error ? error.message : String(error))
+    });
     const response = sanitizedInternalError("OPERATIONS_READ_FAILED");
     response.headers.set("Cache-Control", "no-store");
     return response;

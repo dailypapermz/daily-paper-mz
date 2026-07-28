@@ -41,4 +41,28 @@ describe("GET /api/operations/runs", () => {
     expect(response.headers.get("cache-control")).toBe("no-store");
     expect(listRecentRuns).toHaveBeenCalledWith(5);
   });
+
+  it("logs only sanitized diagnostics when a production read fails", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      const response = await handleOperationsRuns(
+        new Request("http://localhost/api/operations/runs"),
+        {
+          listRecentRuns: vi.fn().mockRejectedValue(
+            new Error("postgresql://operator:password@private.example/daily?token=secret")
+          ),
+          verifyAccess: vi.fn(),
+          isCloud: () => false
+        }
+      );
+
+      expect(response.status).toBe(500);
+      expect(consoleError).toHaveBeenCalledWith("Operations runs read failed", {
+        name: "Error",
+        message: "[database url]"
+      });
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
 });
