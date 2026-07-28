@@ -2,19 +2,6 @@ name: Cloudflare Worker preview contract
 
 on:
   pull_request:
-    paths:
-      - ".github/workflows/cloudflare-preview.yml"
-      - "open-next.config.ts"
-      - "wrangler.jsonc"
-      - "next.config.ts"
-      - "prisma/postgresql/schema.prisma"
-      - "scripts/cloudflare-preview-smoke.mjs"
-      - "scripts/run-opennext.mjs"
-      - "src/app/**"
-      - "src/db/**"
-      - "src/lib/http/**"
-      - "package.json"
-      - "package-lock.json"
   workflow_dispatch:
 
 permissions:
@@ -36,36 +23,44 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           persist-credentials: false
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
 
       - name: Install locked dependencies
-        run: npm ci
+        run: npm ci --no-audit --fund=false
 
       - name: Validate Worker contracts
-        run: npm run test:cloudflare
+        run: node --test scripts/cloudflare-contract.test.mjs scripts/cloudflare-artifact-contract.test.mjs
 
       - name: Build OpenNext Worker
-        run: npm run cf:build
+        shell: bash
+        run: env -u DATABASE_URL npm run cf:build
+
+      - name: Validate generated Worker bundle
+        run: node scripts/cloudflare-artifact-contract.mjs
 
       - name: Start workerd and run HTTP smoke tests
         shell: bash
         run: |
           set -euo pipefail
-          npx wrangler dev --local --port 8787 --var ACCESS_JWT_LOCAL_PREVIEW_BYPASS:true > "$RUNNER_TEMP/workerd.log" 2>&1 &
+          env -u DATABASE_URL npx wrangler dev --local --port 8787 \
+            --var TEAM_DOMAIN:https://ci.cloudflareaccess.com \
+            --var POLICY_AUD:ci-audience \
+            --var ACCESS_ALLOWED_EMAIL:ci-user@example.invalid \
+            > "$RUNNER_TEMP/workerd.log" 2>&1 &
           workerd_pid=$!
           trap 'kill "$workerd_pid" 2>/dev/null || true; wait "$workerd_pid" 2>/dev/null || true' EXIT
           BASE_URL=http://localhost:8787 node scripts/cloudflare-preview-smoke.mjs
 
       - name: Upload verified Worker bundle
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: cloudflare-worker-${{ github.sha }}
           path: .open-next/
@@ -75,7 +70,7 @@ jobs:
 
       - name: Upload workerd log on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: workerd-preview-log
           path: ${{ runner.temp }}/workerd.log

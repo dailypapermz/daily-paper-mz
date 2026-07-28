@@ -27,17 +27,19 @@ export type DailyPipelineStageRecord = {
 export interface PipelineStageRepository {
   initialize(input: {
     runId: string;
+    attempt: number;
     ingestionStatus: "success" | "partial";
     ingestionDetails: Record<string, unknown>;
   }): Promise<void>;
-  start(runId: string, stage: DailyPipelineStageValue): Promise<void>;
+  start(input: { runId: string; attempt: number; stage: DailyPipelineStageValue }): Promise<void>;
   complete(input: {
     runId: string;
+    attempt: number;
     stage: DailyPipelineStageValue;
     status?: "success" | "partial";
     details?: Record<string, unknown>;
   }): Promise<void>;
-  fail(input: { runId: string; stage: DailyPipelineStageValue; errorMessage: string }): Promise<void>;
+  fail(input: { runId: string; attempt: number; stage: DailyPipelineStageValue; errorMessage: string }): Promise<void>;
   list(runId: string): Promise<DailyPipelineStageRecord[]>;
   listRecentIngestionDetails(limit: number): Promise<Record<string, unknown>[]>;
 }

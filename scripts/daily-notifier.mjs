@@ -20,10 +20,7 @@ export function buildDailyNotification({ pipelinePayload, feed, dashboardUrl }) 
     }));
 
   return {
-    title:
-      status === "complete" || status === "already_succeeded"
-        ? "每日文献推荐已完成"
-        : "每日文献推荐部分完成",
+    title: notificationTitle(status),
     status,
     runId: pipelinePayload?.result?.runId,
     recommendationCount: recommendations.length,
@@ -33,6 +30,13 @@ export function buildDailyNotification({ pipelinePayload, feed, dashboardUrl }) 
     topPapers: papers.slice(0, 5),
     dashboardUrl
   };
+}
+
+function notificationTitle(status) {
+  if (status === "complete") return "每日文献推荐已完成";
+  if (status === "complete_with_warnings") return "每日文献推荐已完成（有警告）";
+  if (status === "failed") return "每日文献推荐失败";
+  return "每日文献推荐部分完成";
 }
 
 export async function sendDailyNotification({

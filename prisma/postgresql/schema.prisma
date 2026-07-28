@@ -5,6 +5,7 @@ generator client {
 
 generator workerClient {
   provider = "prisma-client-js"
+  engineType = "client"
 }
 
 datasource db {
@@ -107,6 +108,14 @@ enum DailyIngestionRunSource {
 enum DailyIngestionRunStatus {
   RUNNING
   SUCCESS
+  FAILED
+}
+
+enum DailyPipelineRunStatus {
+  RUNNING
+  COMPLETE
+  COMPLETE_WITH_WARNINGS
+  PARTIAL
   FAILED
 }
 
@@ -504,9 +513,12 @@ model DailyIngestionRun {
   attempt             Int                       @default(1)
   source              DailyIngestionRunSource
   status              DailyIngestionRunStatus   @default(RUNNING)
+  pipelineStatus      DailyPipelineRunStatus?
   runDate             DateTime
   startedAt           DateTime                  @default(now())
   finishedAt          DateTime?
+  pipelineStartedAt   DateTime?
+  pipelineFinishedAt  DateTime?
   candidatesCount     Int                       @default(0)
   errorMessage        String?
   createdAt           DateTime                  @default(now())
@@ -521,6 +533,7 @@ model DailyIngestionRun {
 
   @@index([source, runDate])
   @@index([status, startedAt])
+  @@index([pipelineStatus, pipelineStartedAt])
 }
 
 model SourceIngestionCursor {
@@ -807,7 +820,7 @@ model DailyRecommendationResult {
   recencyScore            Float
   reasonsJson             Json
   featureWeightsJson      Json
-  featureAvailabilityJson Json                    @default(dbgenerated("'{}'"))
+  featureAvailabilityJson Json                    @default("{}")
   createdAt               DateTime                @default(now())
   rerankRun               DailyRerankRun          @relation(fields: [rerankRunId], references: [id], onDelete: Cascade)
   canonicalCandidate      DailyCanonicalCandidate @relation(fields: [canonicalCandidateId], references: [id], onDelete: Cascade)

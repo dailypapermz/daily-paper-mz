@@ -21,8 +21,8 @@ export class DefaultPipelineStageService implements PipelineStageService {
     return this.repository.initialize(input);
   }
 
-  start(runId: string, stage: DailyPipelineStageValue) {
-    return this.repository.start(runId, stage);
+  start(input: Parameters<PipelineStageRepository["start"]>[0]) {
+    return this.repository.start(input);
   }
 
   complete(input: Parameters<PipelineStageRepository["complete"]>[0]) {

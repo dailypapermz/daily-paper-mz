@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import nodemailer from "nodemailer";
 
 import { buildDailyNotification, sendDailyNotification } from "./daily-notifier.mjs";
 
@@ -95,4 +96,47 @@ test("reports failure after both optional channels fail", async () => {
 
   assert.equal(result.status, "failed");
   assert.deepEqual(result.attempts.map((attempt) => attempt.channel), ["wecom", "email"]);
+});
+
+test("renders complete-with-warnings distinctly from partial and failed", () => {
+  const warning = buildDailyNotification({
+    pipelinePayload: { status: "complete_with_warnings", result: { sources: [] } },
+    feed: { recommendations: [] }
+  });
+  const failed = buildDailyNotification({
+    pipelinePayload: { status: "failed", result: { sources: [] } },
+    feed: { recommendations: [] }
+  });
+  assert.match(warning.title, /有警告/);
+  assert.match(failed.title, /失败/);
+  assert.notEqual(warning.title, failed.title);
+});
+
+test("Nodemailer 9 renders the production message shape without network access", async () => {
+  const transport = nodemailer.createTransport({
+    streamTransport: true,
+    buffer: true,
+    newline: "unix"
+  });
+  let rendered;
+  const result = await sendDailyNotification({
+    notification,
+    env: {
+      NOTIFICATION_SMTP_HOST: "smtp.example.test",
+      NOTIFICATION_EMAIL_FROM: "daily-paper@example.test",
+      NOTIFICATION_EMAIL_TO: "operator@example.test"
+    },
+    createTransport: () => ({
+      sendMail: async (message) => {
+        const output = await transport.sendMail(message);
+        rendered = output.message.toString("utf8");
+      }
+    })
+  });
+
+  assert.equal(result.status, "sent");
+  assert.match(rendered, /From: daily-paper@example\.test/);
+  assert.match(rendered, /To: operator@example\.test/);
+  assert.match(rendered, /Content-Type: multipart\/alternative/);
+  assert.match(rendered, /arxiv/);
 });

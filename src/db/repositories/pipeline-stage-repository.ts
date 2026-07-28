@@ -11,68 +11,95 @@ export class PrismaPipelineStageRepository implements PipelineStageRepository {
 
   async initialize(input: {
     runId: string;
+    attempt: number;
     ingestionStatus: "success" | "partial";
     ingestionDetails: Record<string, unknown>;
   }) {
     await this.db.$transaction(async (tx) => {
-      await tx.dailyPipelineStageRun.deleteMany({ where: { runId: input.runId } });
-      await tx.dailyPipelineStageRun.createMany({
-        data: STAGE_ORDER.map((stage) => ({
-          runId: input.runId,
-          stage: toDbStage(stage),
-          status: stage === "ingestion" ? toDbStatus(input.ingestionStatus) : "PENDING",
-          startedAt: stage === "ingestion" ? new Date() : null,
-          finishedAt: stage === "ingestion" ? new Date() : null,
-          detailsJson:
-            stage === "ingestion"
+      const now = new Date();
+      await assertPipelineOwner(tx, input.runId, input.attempt, now);
+      for (const stage of STAGE_ORDER) {
+        const isIngestion = stage === "ingestion";
+        await tx.dailyPipelineStageRun.upsert({
+          where: { runId_stage: { runId: input.runId, stage: toDbStage(stage) } },
+          create: {
+            runId: input.runId,
+            stage: toDbStage(stage),
+            status: isIngestion ? toDbStatus(input.ingestionStatus) : "PENDING",
+            startedAt: isIngestion ? now : null,
+            finishedAt: isIngestion ? now : null,
+            detailsJson: isIngestion
               ? (input.ingestionDetails as Prisma.InputJsonValue)
               : prismaJsonNull
-        }))
-      });
+          },
+          update: isIngestion
+            ? {
+                status: toDbStatus(input.ingestionStatus),
+                startedAt: now,
+                finishedAt: now,
+                errorMessage: null,
+                detailsJson: input.ingestionDetails as Prisma.InputJsonValue
+              }
+            : {}
+        });
+      }
     });
   }
 
-  async start(runId: string, stage: DailyPipelineStageValue) {
-    await this.db.dailyPipelineStageRun.update({
-      where: { runId_stage: { runId, stage: toDbStage(stage) } },
-      data: { status: "RUNNING", startedAt: new Date(), finishedAt: null, errorMessage: null }
+  async start(input: { runId: string; attempt: number; stage: DailyPipelineStageValue }) {
+    const now = new Date();
+    await this.db.$transaction(async (tx) => {
+      await assertPipelineOwner(tx, input.runId, input.attempt, now);
+      const stage = await tx.dailyPipelineStageRun.updateMany({
+        where: { runId: input.runId, stage: toDbStage(input.stage) },
+        data: { status: "RUNNING", startedAt: now, finishedAt: null, errorMessage: null }
+      });
+      if (stage.count !== 1) throw pipelineLeaseLost();
     });
   }
 
   async complete(input: {
     runId: string;
+    attempt: number;
     stage: DailyPipelineStageValue;
     status?: "success" | "partial";
     details?: Record<string, unknown>;
   }) {
-    await this.db.dailyPipelineStageRun.update({
-      where: { runId_stage: { runId: input.runId, stage: toDbStage(input.stage) } },
-      data: {
-        status: toDbStatus(input.status ?? "success"),
-        finishedAt: new Date(),
-        detailsJson: input.details
-          ? (input.details as Prisma.InputJsonValue)
-          : prismaJsonNull
-      }
+    const now = new Date();
+    await this.db.$transaction(async (tx) => {
+      await assertPipelineOwner(tx, input.runId, input.attempt, now);
+      const stage = await tx.dailyPipelineStageRun.updateMany({
+        where: { runId: input.runId, stage: toDbStage(input.stage), status: "RUNNING" },
+        data: {
+          status: toDbStatus(input.status ?? "success"),
+          finishedAt: now,
+          detailsJson: input.details
+            ? (input.details as Prisma.InputJsonValue)
+            : prismaJsonNull
+        }
+      });
+      if (stage.count !== 1) throw pipelineLeaseLost();
     });
   }
 
-  async fail(input: { runId: string; stage: DailyPipelineStageValue; errorMessage: string }) {
+  async fail(input: { runId: string; attempt: number; stage: DailyPipelineStageValue; errorMessage: string }) {
     const failedIndex = STAGE_ORDER.indexOf(input.stage);
-    await this.db.$transaction([
-      this.db.dailyPipelineStageRun.update({
-        where: { runId_stage: { runId: input.runId, stage: toDbStage(input.stage) } },
+    const now = new Date();
+    await this.db.$transaction(async (tx) => {
+      await assertPipelineOwner(tx, input.runId, input.attempt, now);
+      const stage = await tx.dailyPipelineStageRun.updateMany({
+        where: { runId: input.runId, stage: toDbStage(input.stage) },
         data: { status: "FAILED", finishedAt: new Date(), errorMessage: input.errorMessage }
-      }),
-      this.db.dailyPipelineStageRun.updateMany({
+      });
+      if (stage.count !== 1) throw pipelineLeaseLost();
+      await tx.dailyPipelineStageRun.updateMany({
         where: {
           runId: input.runId,
-          stage: { in: STAGE_ORDER.slice(failedIndex + 1).map(toDbStage) },
-          status: "PENDING"
+          stage: { in: STAGE_ORDER.slice(failedIndex + 1).map(toDbStage) }
         },
-        data: { status: "SKIPPED", finishedAt: new Date() }
-      })
-    ]);
+        data: { status: "SKIPPED", finishedAt: now }
+      });
+    });
   }
 
   async list(runId: string) {
@@ -108,6 +135,23 @@ export class PrismaPipelineStageRepository implements PipelineStageRepository {
       return details ? [details] : [];
     });
   }
+}
+
+async function assertPipelineOwner(
+  tx: Pick<PrismaClient, "dailyIngestionRun">,
+  runId: string,
+  attempt: number,
+  heartbeatAt: Date
+) {
+  const owner = await tx.dailyIngestionRun.updateMany({
+    where: { id: runId, status: "SUCCESS", pipelineStatus: "RUNNING", attempt },
+    data: { pipelineStartedAt: heartbeatAt }
+  });
+  if (owner.count !== 1) throw pipelineLeaseLost();
+}
+
+function pipelineLeaseLost() {
+  return new Error("Daily pipeline lease was lost before the stage update.");
 }
 
 function toDbStage(stage: DailyPipelineStageValue) {

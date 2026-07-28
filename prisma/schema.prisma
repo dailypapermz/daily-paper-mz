@@ -106,6 +106,14 @@ enum DailyIngestionRunStatus {
   FAILED
 }
 
+enum DailyPipelineRunStatus {
+  RUNNING
+  COMPLETE
+  COMPLETE_WITH_WARNINGS
+  PARTIAL
+  FAILED
+}
+
 enum DailyPipelineStage {
   INGESTION
   ENRICHMENT
@@ -463,9 +471,12 @@ model DailyIngestionRun {
   attempt        Int                   @default(1)
   source         DailyIngestionRunSource
   status         DailyIngestionRunStatus @default(RUNNING)
+  pipelineStatus DailyPipelineRunStatus?
   runDate        DateTime
   startedAt      DateTime              @default(now())
   finishedAt     DateTime?
+  pipelineStartedAt DateTime?
+  pipelineFinishedAt DateTime?
   candidatesCount Int                  @default(0)
   errorMessage   String?
   createdAt      DateTime              @default(now())
@@ -479,6 +490,7 @@ model DailyIngestionRun {
 
   @@index([source, runDate])
   @@index([status, startedAt])
+  @@index([pipelineStatus, pipelineStartedAt])
 }
 
 model SourceIngestionCursor {

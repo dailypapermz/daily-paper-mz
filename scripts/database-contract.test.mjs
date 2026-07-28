@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { resolve } from "node:path";
@@ -13,6 +14,18 @@ const cloudSchemaPath = resolve(projectDir, "prisma/postgresql/schema.prisma");
 const cloudMigrationPath = resolve(
   projectDir,
   "prisma/postgresql/migrations/20260726160000_postgresql_baseline/migration.sql"
+);
+const cloudOutcomeMigrationPath = resolve(
+  projectDir,
+  "prisma/postgresql/migrations/20260728170000_daily_pipeline_outcomes/migration.sql"
+);
+const cloudPipelineLeaseMigrationPath = resolve(
+  projectDir,
+  "prisma/postgresql/migrations/20260728190000_pipeline_lease_fencing/migration.sql"
+);
+const cloudLegacyOutcomeMigrationPath = resolve(
+  projectDir,
+  "prisma/postgresql/migrations/20260728191000_backfill_legacy_pipeline_outcomes/migration.sql"
 );
 
 function definitionNames(schema) {
@@ -81,8 +94,13 @@ test("both Prisma schemas validate without connecting to a database", () => {
   ));
 });
 
-test("the committed PostgreSQL baseline is current and contains PostgreSQL primitives", async () => {
-  const migration = await readFile(cloudMigrationPath, "utf8");
+test("the immutable PostgreSQL baseline and incremental pipeline migrations match the current schema", async () => {
+  const [migration, outcomeMigration, pipelineLeaseMigration, legacyOutcomeMigration] = await Promise.all([
+    readFile(cloudMigrationPath, "utf8"),
+    readFile(cloudOutcomeMigrationPath, "utf8"),
+    readFile(cloudPipelineLeaseMigrationPath, "utf8"),
+    readFile(cloudLegacyOutcomeMigrationPath, "utf8")
+  ]);
   const generated = runPrisma(
     ["migrate", "diff", "--from-empty", "--to-schema-datamodel", cloudSchemaPath, "--script"],
     "postgresql://placeholder:placeholder@127.0.0.1:5432/daily_paper"
@@ -92,5 +110,18 @@ test("the committed PostgreSQL baseline is current and contains PostgreSQL primi
   assert.match(migration, /CREATE TABLE "DailyIngestionRun"/);
   assert.match(migration, /JSONB/);
   assert.doesNotMatch(migration, /PRAGMA|AUTOINCREMENT/);
-  assert.equal(migration.replace(/\r\n/g, "\n").trim(), generated.replace(/\r\n/g, "\n").trim());
+  assert.equal(
+    createHash("sha256").update(migration.replaceAll("\r\n", "\n")).digest("hex"),
+    "512588416548c90c6c721e70572c95902f964f7ea053fc2c27fc096ac0f50fee"
+  );
+  assert.match(outcomeMigration, /CREATE TYPE "DailyPipelineRunStatus" AS ENUM/);
+  assert.match(outcomeMigration, /ADD COLUMN "pipelineStatus"/);
+  assert.match(pipelineLeaseMigration, /ADD COLUMN "pipelineStartedAt"/);
+  assert.match(pipelineLeaseMigration, /DailyIngestionRun_pipelineStatus_pipelineStartedAt_idx/);
+  assert.match(legacyOutcomeMigration, /WHERE "source" = 'AGGREGATED'/);
+  assert.match(legacyOutcomeMigration, /"pipelineStatus" IS NULL/);
+  assert.match(legacyOutcomeMigration, /::"DailyPipelineRunStatus"/);
+  assert.match(generated, /CREATE TYPE "DailyPipelineRunStatus" AS ENUM/);
+  assert.match(generated, /"pipelineStatus" "DailyPipelineRunStatus"/);
+  assert.match(generated, /"pipelineStartedAt" TIMESTAMP\(3\)/);
 });

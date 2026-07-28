@@ -25,6 +25,10 @@ NOTIFICATION_SMTP_USER=""
 NOTIFICATION_SMTP_PASS=""
 NOTIFICATION_EMAIL_FROM=""
 NOTIFICATION_EMAIL_TO=""
+OPERATIONS_GITHUB_OWNER=""
+OPERATIONS_GITHUB_REPO=""
+OPERATIONS_GITHUB_TOKEN=""
+OPERATIONS_GITHUB_REF=""
 SCHEDULER_DAILY_UTC_HOUR="0"
 SCHEDULER_MONTHLY_UTC_DAY="1"
 SCHEDULER_MONTHLY_UTC_HOUR="7"
@@ -87,6 +91,36 @@ test("doctor validates paired providers, enabled Obsidian, SMTP, and schedule ra
     for (const code of ["zotero_web", "llm", "embedding", "obsidian", "smtp", "scheduler_daily_hour"]) {
       assert.ok(report.checks.some((check) => check.level === "error" && check.code === code), code);
     }
+  });
+});
+
+test("doctor validates Operations dispatch as an optional complete secret set", async () => {
+  const incomplete = validEnv.replace(
+    'OPERATIONS_GITHUB_OWNER=""',
+    'OPERATIONS_GITHUB_OWNER="example-owner"'
+  );
+  await withTempProject(incomplete, async (projectDir) => {
+    const report = await inspectProject({ projectDir, platform: "win32", nodeVersion: "v22.18.0", environment: {} });
+    assert.ok(report.checks.some((item) => item.level === "error" && item.code === "operations_dispatch"));
+  });
+
+  const complete = validEnv
+    .replace('OPERATIONS_GITHUB_OWNER=""', 'OPERATIONS_GITHUB_OWNER="example-owner"')
+    .replace('OPERATIONS_GITHUB_REPO=""', 'OPERATIONS_GITHUB_REPO="daily-paper"')
+    .replace('OPERATIONS_GITHUB_TOKEN=""', 'OPERATIONS_GITHUB_TOKEN="do-not-print-operations-token"')
+    .replace('OPERATIONS_GITHUB_REF=""', 'OPERATIONS_GITHUB_REF="master"');
+  await withTempProject(complete, async (projectDir) => {
+    const lines = [];
+    const result = await runDoctor({
+      projectDir,
+      platform: "win32",
+      nodeVersion: "v22.18.0",
+      environment: {},
+      logger: (line) => lines.push(line)
+    });
+    assert.equal(result.exitCode, 0);
+    assert.ok(result.checks.some((item) => item.level === "ready" && item.code === "operations_dispatch"));
+    assert.equal(lines.join("\n").includes("do-not-print-operations-token"), false);
   });
 });
 

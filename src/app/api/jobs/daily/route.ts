@@ -19,7 +19,15 @@ export async function POST(request: Request) {
       sources: Array.isArray(body.sources) ? body.sources : undefined
     });
 
-    return NextResponse.json({ status: "ok", result });
+    const httpStatus = result.disposition === "already_running"
+      ? 409
+      : result.status === "failed" || (result.status === "partial" && result.retryable)
+        ? 503
+        : 200;
+    return NextResponse.json(
+      { status: result.status, disposition: result.disposition, result },
+      { status: httpStatus }
+    );
   } catch {
     return sanitizedInternalError("DAILY_JOB_FAILED");
   }

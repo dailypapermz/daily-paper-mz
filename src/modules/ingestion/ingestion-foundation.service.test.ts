@@ -63,6 +63,7 @@ class FakeRepository implements DailyIngestionRepository {
 
   async finalizeRunSuccess(input: {
     runId: string;
+    attempt: number;
     entries: Array<{
       source: "biorxiv" | "arxiv" | "pubmed" | "journal";
       candidate: DailySourceAdapterCandidate;
@@ -72,6 +73,10 @@ class FakeRepository implements DailyIngestionRepository {
       successfulAt: Date;
       seenExternalIds?: string[];
     }>;
+    pipelineInitialization?: {
+      ingestionStatus: "success" | "partial";
+      ingestionDetails: Record<string, unknown>;
+    };
   }) {
     const candidatesCount = await this.saveCandidates({ runId: input.runId, entries: input.entries });
     for (const checkpoint of input.checkpoints) {
@@ -117,7 +122,7 @@ class FakeRepository implements DailyIngestionRepository {
     };
   }
 
-  async markRunFailed(input: { runId: string; errorMessage: string }) {
+  async markRunFailed(input: { runId: string; attempt: number; errorMessage: string }) {
     this.latestRun = {
       id: input.runId,
       source: this.latestRun?.source ?? "biorxiv",
@@ -133,6 +138,18 @@ class FakeRepository implements DailyIngestionRepository {
       ...this.latestRun,
       finishedAt: new Date().toISOString(),
       errorMessage: input.errorMessage
+    };
+  }
+
+  async setPipelineOutcome(input: {
+    runId: string;
+    status: "complete" | "complete_with_warnings" | "partial" | "failed";
+  }) {
+    if (!this.latestRun || this.latestRun.id !== input.runId) throw new Error("run not found");
+    return {
+      ...this.latestRun,
+      pipelineStatus: input.status,
+      pipelineFinishedAt: new Date().toISOString()
     };
   }
 
