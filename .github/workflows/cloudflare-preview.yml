@@ -2,23 +2,6 @@ name: Cloudflare Worker preview contract
 
 on:
   pull_request:
-    paths:
-      - ".github/workflows/cloudflare-preview.yml"
-      - "open-next.config.ts"
-      - "wrangler.jsonc"
-      - "next.config.ts"
-      - "prisma/postgresql/schema.prisma"
-      - "scripts/cloudflare-preview-smoke.mjs"
-      - "scripts/cloudflare-artifact-contract.mjs"
-      - "scripts/cloudflare-artifact-contract.test.mjs"
-      - "scripts/cloudflare-contract.test.mjs"
-      - "scripts/run-opennext.mjs"
-      - "src/app/**"
-      - "src/db/**"
-      - "src/lib/http/**"
-      - "src/middleware.ts"
-      - "package.json"
-      - "package-lock.json"
   workflow_dispatch:
 
 permissions:

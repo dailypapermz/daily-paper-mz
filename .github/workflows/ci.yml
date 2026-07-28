@@ -36,10 +36,13 @@ jobs:
       - name: Install locked dependencies
         run: npm ci --no-audit --fund=false
 
+      - name: Audit production dependencies against frozen baseline
+        run: node scripts/production-audit-check.mjs
+
       - name: Test configuration and workflow contracts
         run: |
           npm run test:config
-          node --test scripts/daily-workflow.test.mjs scripts/profile-workflow.test.mjs scripts/cloudflare-contract.test.mjs scripts/cloudflare-artifact-contract.test.mjs scripts/ci-migration-check.test.mjs scripts/ci-workflow-contract.test.mjs
+          node --test scripts/daily-workflow.test.mjs scripts/profile-workflow.test.mjs scripts/cloudflare-contract.test.mjs scripts/cloudflare-artifact-contract.test.mjs scripts/ci-migration-check.test.mjs scripts/ci-workflow-contract.test.mjs scripts/production-audit-check.test.mjs
 
       - name: Validate Local Mode contracts
         env:

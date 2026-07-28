@@ -43,6 +43,7 @@ test("quality CI installs from the lockfile and covers config, tests, types, bui
   const commands = [
     "node scripts/ci-clean-checkout.mjs",
     "npm ci",
+    "node scripts/production-audit-check.mjs",
     "npm run test:config",
     "scripts/ci-workflow-contract.test.mjs",
     "npm run check:env",
@@ -64,6 +65,15 @@ test("quality CI installs from the lockfile and covers config, tests, types, bui
   assert.match(ci, /DEPLOYMENT_MODE: cloud[\s\S]*?DATABASE_URL: postgresql:\/\/placeholder:placeholder@database\.invalid\/daily_paper/);
 });
 
+test("production audit runs after npm ci with the fixture-tested frozen baseline", () => {
+  assert.ok(
+    ci.indexOf("node scripts/production-audit-check.mjs") > ci.indexOf("npm ci"),
+    "production audit must run after the locked install"
+  );
+  assert.match(ci, /scripts\/production-audit-check\.test\.mjs/);
+  assert.doesNotMatch(ci, /npm audit[^\n]*(?:\|\||continue-on-error)/);
+});
+
 test("migration validation uses only an explicit ephemeral test database", () => {
   assert.match(ci, /image: postgres:17/);
   assert.match(ci, /POSTGRES_DB: daily_paper_ci/);
@@ -76,6 +86,8 @@ test("migration validation uses only an explicit ephemeral test database", () =>
 });
 
 test("Worker preview cannot inherit a database URL and verifies fail-closed access", () => {
+  assert.match(preview, /on:\s*\n\s*pull_request:\s*\n\s*workflow_dispatch:/);
+  assert.doesNotMatch(preview, /pull_request:[\s\S]*?paths(?:-ignore)?:/);
   assert.match(preview, /env -u DATABASE_URL npm run cf:build/);
   assert.match(preview, /env -u DATABASE_URL npx wrangler dev/);
   assert.doesNotMatch(preview, /secrets\.|ACCESS_JWT_LOCAL_PREVIEW_BYPASS/);
