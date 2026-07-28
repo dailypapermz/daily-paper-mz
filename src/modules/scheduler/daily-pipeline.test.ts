@@ -455,6 +455,9 @@ describe("runDailyRecommendationPipeline", () => {
       disposition: "already_succeeded",
       retryable: false
     });
+    expect(mocks.getRun.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.listStages.mock.invocationCallOrder[1]
+    );
   });
 
   it("records a stage failure when starting that stage fails before its transition", async () => {

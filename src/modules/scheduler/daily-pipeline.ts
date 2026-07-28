@@ -237,8 +237,8 @@ export async function runDailyRecommendationPipeline(input?: {
     });
     const errorRunId = activeRunId ?? extractRunId(error);
     const alreadyRunningSummary = async (): Promise<DailyPipelineRunSummary> => {
-      const stages = errorRunId ? await stageStatus.list(errorRunId) : [];
       const currentRun = errorRunId ? await ingestion.getRun(errorRunId) : null;
+      const stages = errorRunId ? await stageStatus.list(errorRunId) : [];
       const terminalStatus = asTerminalPipelineOutcome(currentRun?.pipelineStatus);
       if (terminalStatus) {
         const conclusion = concludeDailyPipeline(stages);

@@ -79,6 +79,34 @@ describe("OperationsService", () => {
     await expect(service.getRetryDispatch("run-1")).resolves.toEqual({ runDate: "2026-07-27" });
   });
 
+  it.each(["pending", "running", "skipped"] as const)(
+    "allows recovery of a backfilled failed run with an unsettled %s stage",
+    async (stageStatus) => {
+      const service = new OperationsService(repository({
+        getAggregatedRun: vi.fn().mockResolvedValue(runRecord({
+          pipelineStatus: "failed",
+          stages: [
+            { stage: "ingestion", status: "success" },
+            { stage: "enrichment", status: stageStatus }
+          ]
+        }))
+      }));
+
+      await expect(service.getRetryDispatch("run-1")).resolves.toEqual({ runDate: "2026-07-27" });
+    }
+  );
+
+  it("allows recovery when a backfilled failed run is missing a required stage", async () => {
+    const service = new OperationsService(repository({
+      getAggregatedRun: vi.fn().mockResolvedValue(runRecord({
+        pipelineStatus: "failed",
+        stages: [{ stage: "ingestion", status: "success" }]
+      }))
+    }));
+
+    await expect(service.getRetryDispatch("run-1")).resolves.toEqual({ runDate: "2026-07-27" });
+  });
+
   it.each([
     ["running", "RUN_ALREADY_RUNNING"],
     ["complete", "RUN_ALREADY_COMPLETE"],
@@ -95,7 +123,15 @@ describe("OperationsService", () => {
     const settledPartial = new OperationsService(repository({
       getAggregatedRun: vi.fn().mockResolvedValue(runRecord({
         pipelineStatus: "partial",
-        stages: [{ stage: "enrichment", status: "partial" }]
+        stages: [
+          { stage: "ingestion", status: "success" },
+          { stage: "enrichment", status: "partial" },
+          { stage: "normalization", status: "success" },
+          { stage: "representation", status: "success" },
+          { stage: "recall", status: "success" },
+          { stage: "rerank", status: "success" },
+          { stage: "summary", status: "success" }
+        ]
       }))
     }));
     await expect(settledPartial.getRetryDispatch("run-1")).rejects.toMatchObject({

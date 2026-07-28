@@ -128,10 +128,16 @@ function isRetryable(
     return lastHeartbeat.getTime() <= now.getTime() - pipelineStaleAfterMs;
   }
   if (status !== "failed" && status !== "partial") return false;
-  return stages.length === 0 || stages.some((stage) =>
-    stage.status === "failed" ||
-    (stage.status === "partial" && stage.stage !== "ingestion" && stage.stage !== "enrichment")
-  );
+  return OPERATIONS_STAGE_ORDER.some((stageName) => {
+    const stage = stages.find((entry) => entry.stage === stageName);
+    return !stage ||
+      stage.status === "failed" ||
+      stage.status === "pending" ||
+      stage.status === "running" ||
+      stage.status === "skipped" ||
+      stage.status === "unknown" ||
+      (stage.status === "partial" && stage.stage !== "ingestion" && stage.stage !== "enrichment");
+  });
 }
 
 function deriveSourceDegradation(row: OperationsRunRecord): OperationsSourceDegradation {
