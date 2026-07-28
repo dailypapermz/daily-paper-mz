@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import test from "node:test";
 
 import { validateOpenNextArtifact } from "./cloudflare-artifact-contract.mjs";
+import { pruneOpenNextNativePrismaEngines } from "./prune-opennext-prisma-engines.mjs";
 
 test("artifact contract requires a completed OpenNext bundle", async () => {
   const root = join(import.meta.dirname, ".tmp-missing-open-next");
@@ -62,4 +63,37 @@ test("artifact contract does not join a credential-free URL to later minified pu
   );
 
   await assert.doesNotReject(validateOpenNextArtifact(root));
+});
+
+test("artifact contract rejects a filesystem-backed Prisma query compiler", async (context) => {
+  const root = join(import.meta.dirname, `.tmp-wasm-open-next-${process.pid}`);
+  context.after(() => rm(root, { recursive: true, force: true }));
+  await mkdir(join(root, "assets"), { recursive: true });
+  await mkdir(join(root, "server-functions", "default"), { recursive: true });
+  await writeFile(join(root, "worker.js"), "const wasm = 'query_compiler_bg.wasm';\n", "utf8");
+  await writeFile(join(root, "assets", "index.txt"), "public\n", "utf8");
+  await writeFile(join(root, "server-functions", "default", "handler.mjs"), "export {};\n", "utf8");
+
+  await assert.rejects(validateOpenNextArtifact(root), /filesystem-backed Prisma query compiler/);
+});
+
+test("OpenNext pruning removes only generated native Prisma engines", async (context) => {
+  const root = join(import.meta.dirname, `.tmp-prisma-prune-${process.pid}`);
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const clientDir = join(root, "server-functions", "default", "node_modules", ".prisma", "client");
+  const unrelatedDir = join(root, "server-functions", "default", "other");
+  const engine = join(clientDir, "query_engine-windows.dll.node");
+  const unrelated = join(unrelatedDir, "query_engine-windows.dll.node");
+  await mkdir(clientDir, { recursive: true });
+  await mkdir(unrelatedDir, { recursive: true });
+  await writeFile(engine, "generated", "utf8");
+  await writeFile(unrelated, "preserve", "utf8");
+
+  const removed = await pruneOpenNextNativePrismaEngines(root);
+
+  assert.deepEqual(removed, [
+    "server-functions/default/node_modules/.prisma/client/query_engine-windows.dll.node"
+  ]);
+  await assert.rejects(access(engine));
+  await assert.doesNotReject(access(unrelated));
 });

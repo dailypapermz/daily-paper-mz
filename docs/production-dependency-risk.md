@@ -9,7 +9,7 @@ This register records the v0.2 production audit decisions. It is evidence for ma
 | Prisma CLI, Client, Neon adapter, Config/Effect/Defu chain | mixed 6.19.2 / broad 6.x ranges | exact 6.19.3 | Four high audit nodes removed. Local/Cloud generation, both schemas, migration contract, Node build, OpenNext build, and application tests pass. |
 | Nodemailer | 7.0.13 | exact 9.0.3 | One high audit node removed. The production from/to/subject/text/html path is rendered with Nodemailer's stream transport without network access; real SMTP acceptance remains a controlled deployment check. |
 
-The Worker-only Prisma generator uses `engineType = "client"`. The regular SQLite and Node PostgreSQL generators are unchanged. This prevents OpenNext from packaging a platform-native Prisma query engine while preserving the Neon driver-adapter runtime. The artifact contract rejects `.node`, `.dll`, `.so`, and `.dylib` query engines.
+The Worker-only Prisma generator deliberately retains the OpenNext-patchable default client contract. Setting `engineType = "client"` with this Prisma 6/OpenNext matrix leaves a filesystem-backed `query_compiler_bg.wasm` lookup in the Worker bundle and is therefore rejected. The regular SQLite and Node PostgreSQL generators are unchanged. The artifact contract rejects native query engines and filesystem-backed query-compiler references after the OpenNext build.
 
 ## Open high findings
 

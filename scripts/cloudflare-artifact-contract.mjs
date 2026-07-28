@@ -42,6 +42,11 @@ export async function validateOpenNextArtifact(root) {
     if (containsCredentialedPostgresUrl(content)) {
       throw new Error(`Worker artifact contains an embedded credentialed PostgreSQL URL in ${relative(root, file)}.`);
     }
+    if (/query_compiler_bg\.wasm/.test(content)) {
+      throw new Error(
+        `Worker artifact contains a filesystem-backed Prisma query compiler reference in ${relative(root, file)}.`
+      );
+    }
     if (/qyapi\.weixin\.qq\.com\/cgi-bin\/webhook\/send\?key=/i.test(content)) {
       throw new Error(`Worker artifact contains an embedded webhook URL in ${relative(root, file)}.`);
     }
