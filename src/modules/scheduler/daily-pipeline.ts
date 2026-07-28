@@ -63,6 +63,7 @@ export async function runDailyRecommendationPipeline(input?: {
 
   let results: DailySchedulerSourceResult[] = [];
   let activeRunId: string | undefined;
+  let activeAttempt: number | undefined;
   let activeStage: DailyPipelineStageValue = "ingestion";
   let pipelineStatus: DailyPipelineRunSummary["status"] = "complete";
   let disposition: DailyPipelineDisposition = "executed";
@@ -80,10 +81,11 @@ export async function runDailyRecommendationPipeline(input?: {
     });
     const runId = ingestResult.run.id;
     activeRunId = runId;
+    activeAttempt = ingestResult.run.attempt;
     disposition = ingestResult.disposition === "acquired" ? "executed" : "resumed";
     let sourceSummaries = ingestResult.sourceSummaries;
 
-    if (ingestResult.disposition === "already_succeeded") {
+    if (ingestResult.disposition === "already_succeeded" || ingestResult.disposition === "pipeline_acquired") {
       persistedStages = await stageStatus.list(runId);
       sourceSummaries = sourceSummariesFromStages(persistedStages) ?? sourceSummaries;
       const resumeStage = findDailyResumeStage(persistedStages);
@@ -96,10 +98,17 @@ export async function runDailyRecommendationPipeline(input?: {
           ...(entry.errorMessage ? { errorMessage: entry.errorMessage } : {})
         }));
         const conclusion = concludeDailyPipeline(persistedStages);
+        if (ingestResult.disposition === "pipeline_acquired") {
+          await ingestion.setPipelineOutcome({
+            runId,
+            attempt: ingestResult.run.attempt,
+            status: conclusion.status
+          });
+        }
         const storedStatus = asTerminalPipelineOutcome(ingestResult.run.pipelineStatus) ?? conclusion.status;
         return {
-          status: storedStatus,
-          disposition: "already_succeeded",
+          status: ingestResult.disposition === "pipeline_acquired" ? conclusion.status : storedStatus,
+          disposition: ingestResult.disposition === "pipeline_acquired" ? "resumed" : "already_succeeded",
           runId,
           failedStage: conclusion.failedStage,
           retryable: isDailyPipelineRetryable(persistedStages),
@@ -130,6 +139,7 @@ export async function runDailyRecommendationPipeline(input?: {
     if (persistedStages.length === 0) {
       await stageStatus.initialize({
         runId,
+        attempt: activeAttempt!,
         ingestionStatus: sourcePartial ? "partial" : "success",
         ingestionDetails: { sources: sourceSummaries }
       });
@@ -141,10 +151,11 @@ export async function runDailyRecommendationPipeline(input?: {
 
     activeStage = "enrichment";
     if (shouldRun(activeStage)) {
-      await stageStatus.start(runId, activeStage);
+      await stageStatus.start({ runId, attempt: activeAttempt!, stage: activeStage });
       const enrichment = await enrich.enrichRun(runId);
       await stageStatus.complete({
         runId,
+        attempt: activeAttempt!,
         stage: activeStage,
         status: enrichment.failed > 0 ? "partial" : "success",
         details: enrichment as unknown as Record<string, unknown>
@@ -153,10 +164,11 @@ export async function runDailyRecommendationPipeline(input?: {
 
     activeStage = "normalization";
     if (shouldRun(activeStage)) {
-      await stageStatus.start(runId, activeStage);
+      await stageStatus.start({ runId, attempt: activeAttempt!, stage: activeStage });
       const normalization = await dedupe.runForIngestionRun(runId);
       await stageStatus.complete({
         runId,
+        attempt: activeAttempt!,
         stage: activeStage,
         details: {
           runId: normalization.runId,
@@ -169,10 +181,11 @@ export async function runDailyRecommendationPipeline(input?: {
 
     activeStage = "representation";
     if (shouldRun(activeStage)) {
-      await stageStatus.start(runId, activeStage);
+      await stageStatus.start({ runId, attempt: activeAttempt!, stage: activeStage });
       const labels = await summarize.generateLabelsForRun({ runId });
       await stageStatus.complete({
         runId,
+        attempt: activeAttempt!,
         stage: activeStage,
         status: labels.failed > 0 ? "partial" : "success",
         details: { requested: labels.requested, generated: labels.generated, failed: labels.failed }
@@ -181,24 +194,25 @@ export async function runDailyRecommendationPipeline(input?: {
 
     activeStage = "recall";
     if (shouldRun(activeStage)) {
-      await stageStatus.start(runId, activeStage);
+      await stageStatus.start({ runId, attempt: activeAttempt!, stage: activeStage });
       const recallResult = await recall.runRecall({ runId });
-      await stageStatus.complete({ runId, stage: activeStage, details: { recallRunId: recallResult.run.id } });
+      await stageStatus.complete({ runId, attempt: activeAttempt!, stage: activeStage, details: { recallRunId: recallResult.run.id } });
     }
 
     activeStage = "rerank";
     if (shouldRun(activeStage)) {
-      await stageStatus.start(runId, activeStage);
+      await stageStatus.start({ runId, attempt: activeAttempt!, stage: activeStage });
       const rerankResult = await rerank.runRerank({ runId, topN: 20 });
-      await stageStatus.complete({ runId, stage: activeStage, details: { rerankRunId: rerankResult.run.id } });
+      await stageStatus.complete({ runId, attempt: activeAttempt!, stage: activeStage, details: { rerankRunId: rerankResult.run.id } });
     }
 
     activeStage = "summary";
     if (shouldRun(activeStage)) {
-      await stageStatus.start(runId, activeStage);
+      await stageStatus.start({ runId, attempt: activeAttempt!, stage: activeStage });
       const summaries = await summarize.generateSummariesForRun({ runId, limit: 20, selectedOnly: true });
       await stageStatus.complete({
         runId,
+        attempt: activeAttempt!,
         stage: activeStage,
         status: summaries.failed > 0 ? "partial" : "success",
         details: { requested: summaries.requested, generated: summaries.generated, failed: summaries.failed }
@@ -208,7 +222,7 @@ export async function runDailyRecommendationPipeline(input?: {
     persistedStages = await stageStatus.list(runId);
     const conclusion = concludeDailyPipeline(persistedStages);
     pipelineStatus = conclusion.status;
-    await ingestion.setPipelineOutcome({ runId, status: conclusion.status });
+    await ingestion.setPipelineOutcome({ runId, attempt: activeAttempt!, status: conclusion.status });
 
     logger.info("Scheduler daily aggregated pipeline succeeded", {
       runId,
@@ -222,37 +236,59 @@ export async function runDailyRecommendationPipeline(input?: {
       errorMessage
     });
     const errorRunId = activeRunId ?? extractRunId(error);
-    if (error instanceof AppError && error.code === "DAILY_RUN_ALREADY_RUNNING") {
+    const alreadyRunningSummary = async () => ({
+      status: "running" as const,
+      disposition: "already_running" as const,
+      runId: errorRunId,
+      retryable: false,
+      startedAt: startedAt.toISOString(),
+      finishedAt: new Date().toISOString(),
+      runDate: input?.runDate,
+      sources: [],
+      stages: errorRunId ? await stageStatus.list(errorRunId) : []
+    });
+    if (
+      (error instanceof AppError && error.code === "DAILY_RUN_ALREADY_RUNNING") ||
+      isPipelineLeaseLost(error)
+    ) {
       return {
-        status: "running",
-        disposition: "already_running",
-        runId: errorRunId,
-        retryable: false,
-        startedAt: startedAt.toISOString(),
-        finishedAt: new Date().toISOString(),
-        runDate: input?.runDate,
-        sources: [],
-        stages: errorRunId ? await stageStatus.list(errorRunId) : []
+        ...await alreadyRunningSummary()
       } satisfies DailyPipelineRunSummary;
     }
     if (errorRunId) {
-      if (activeRunId) {
-        await stageStatus.fail({ runId: errorRunId, stage: activeStage, errorMessage });
-      } else {
-        await stageStatus.initialize({
-          runId: errorRunId,
-          ingestionStatus: "partial",
-          ingestionDetails: { errorMessage }
-        });
-        await stageStatus.fail({ runId: errorRunId, stage: "ingestion", errorMessage });
+      if (activeRunId && activeAttempt !== undefined) {
+        try {
+          await stageStatus.fail({
+            runId: errorRunId,
+            attempt: activeAttempt,
+            stage: activeStage,
+            errorMessage
+          });
+        } catch (stageError) {
+          if (isPipelineLeaseLost(stageError)) {
+            return { ...await alreadyRunningSummary() } satisfies DailyPipelineRunSummary;
+          }
+          throw stageError;
+        }
       }
       persistedStages = await stageStatus.list(errorRunId);
       activeRunId = errorRunId;
     }
     const conclusion = concludeDailyPipeline(persistedStages);
     pipelineStatus = conclusion.status;
-    if (activeRunId) {
-      await ingestion.setPipelineOutcome({ runId: activeRunId, status: conclusion.status });
+    if (activeRunId && activeAttempt !== undefined) {
+      try {
+        await ingestion.setPipelineOutcome({
+          runId: activeRunId,
+          attempt: activeAttempt,
+          status: conclusion.status
+        });
+      } catch (outcomeError) {
+        if (isPipelineLeaseLost(outcomeError)) {
+          return { ...await alreadyRunningSummary() } satisfies DailyPipelineRunSummary;
+        }
+        throw outcomeError;
+      }
     }
 
     if (results.length === 0) {
@@ -304,6 +340,10 @@ function sourceSummariesFromStages(stages: DailyPipelineStageRecord[]) {
       errorMessage: typeof value.errorMessage === "string" ? value.errorMessage : undefined
     }];
   });
+}
+
+function isPipelineLeaseLost(error: unknown) {
+  return error instanceof Error && /pipeline lease was lost/i.test(error.message);
 }
 
 function asTerminalPipelineOutcome(value: string | undefined): DailyPipelineOutcome | undefined {

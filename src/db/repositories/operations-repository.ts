@@ -39,6 +39,7 @@ function mapRun(row: {
   pipelineStatus: "RUNNING" | "COMPLETE" | "COMPLETE_WITH_WARNINGS" | "PARTIAL" | "FAILED" | null;
   runDate: Date;
   startedAt: Date;
+  pipelineStartedAt: Date | null;
   finishedAt: Date | null;
   pipelineFinishedAt: Date | null;
   errorMessage: string | null;
@@ -59,6 +60,7 @@ function mapRun(row: {
     pipelineStatus: mapPipelineStatus(row.pipelineStatus),
     runDate: row.runDate,
     startedAt: row.startedAt,
+    pipelineStartedAt: row.pipelineStartedAt ?? undefined,
     finishedAt: row.finishedAt ?? undefined,
     pipelineFinishedAt: row.pipelineFinishedAt ?? undefined,
     errorMessage: row.errorMessage ?? undefined,

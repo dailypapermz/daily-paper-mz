@@ -135,6 +135,63 @@ describe("PrismaDailyIngestionRepository persistence contract", () => {
     })).resolves.toMatchObject({ status: "success", attempt: 2 });
   });
 
+  it("keeps an active downstream lease exclusive and reclaims only a stale pipeline attempt", async () => {
+    const [leftClient, rightClient] = makeClients(2);
+    const startedAt = new Date("2026-07-27T02:00:00.000Z");
+    const initial = new PrismaDailyIngestionRepository(leftClient, { now: () => startedAt });
+    const input = runInput();
+    const acquired = await initial.acquireRun(input);
+    const finalized = await initial.finalizeRunSuccess({
+      runId: acquired.run.id,
+      attempt: acquired.run.attempt,
+      entries: [],
+      checkpoints: [],
+      pipelineInitialization: {
+        ingestionStatus: "success",
+        ingestionDetails: { sources: [] }
+      }
+    });
+    expect(finalized).toMatchObject({
+      status: "success",
+      pipelineStatus: "running",
+      attempt: 1
+    });
+
+    const active = new PrismaDailyIngestionRepository(rightClient, {
+      staleAfterMs: 180 * 60 * 1000,
+      now: () => new Date("2026-07-27T03:00:00.000Z")
+    });
+    await expect(active.acquireRun(input)).resolves.toMatchObject({
+      disposition: "already_running",
+      run: { id: acquired.run.id, attempt: 1 }
+    });
+
+    const staleNow = new Date("2026-07-27T06:00:00.000Z");
+    const staleLeft = new PrismaDailyIngestionRepository(leftClient, {
+      staleAfterMs: 180 * 60 * 1000,
+      now: () => staleNow
+    });
+    const staleRight = new PrismaDailyIngestionRepository(rightClient, {
+      staleAfterMs: 180 * 60 * 1000,
+      now: () => staleNow
+    });
+    const claims = await Promise.all([staleLeft.acquireRun(input), staleRight.acquireRun(input)]);
+    const winner = claims.find((claim) => claim.disposition === "pipeline_acquired");
+    expect(winner?.run).toMatchObject({ id: acquired.run.id, attempt: 2, status: "success" });
+    expect(claims.some((claim) => claim.disposition === "already_running")).toBe(true);
+
+    await expect(initial.setPipelineOutcome({
+      runId: acquired.run.id,
+      attempt: 1,
+      status: "complete"
+    })).rejects.toThrow(/pipeline lease was lost/i);
+    await expect(staleLeft.setPipelineOutcome({
+      runId: acquired.run.id,
+      attempt: 2,
+      status: "complete"
+    })).resolves.toMatchObject({ pipelineStatus: "complete", attempt: 2 });
+  });
+
   function makeClients(count: number) {
     const created = Array.from({ length: count }, () => new PrismaClient({ datasourceUrl: databaseUrl }));
     clients.push(...created);

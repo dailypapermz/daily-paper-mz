@@ -475,6 +475,7 @@ model DailyIngestionRun {
   runDate        DateTime
   startedAt      DateTime              @default(now())
   finishedAt     DateTime?
+  pipelineStartedAt DateTime?
   pipelineFinishedAt DateTime?
   candidatesCount Int                  @default(0)
   errorMessage   String?
@@ -489,7 +490,7 @@ model DailyIngestionRun {
 
   @@index([source, runDate])
   @@index([status, startedAt])
-  @@index([pipelineStatus, startedAt])
+  @@index([pipelineStatus, pipelineStartedAt])
 }
 
 model SourceIngestionCursor {

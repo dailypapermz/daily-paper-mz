@@ -25,16 +25,19 @@ const SETTLED_WARNING_STAGES = new Set<DailyPipelineStageValue>([
 ]);
 
 export function concludeDailyPipeline(stages: DailyPipelineStageRecord[]): DailyPipelineConclusion {
-  const failedStage = STAGE_ORDER.find((stage) =>
-    stages.some((entry) => entry.stage === stage && entry.status === "failed")
-  );
+  const failedStage = STAGE_ORDER.find((stage) => {
+    const entry = stages.find((candidate) => candidate.stage === stage);
+    return !entry ||
+      entry.status === "failed" ||
+      entry.status === "pending" ||
+      entry.status === "running" ||
+      entry.status === "skipped" ||
+      (entry.status === "partial" && !SETTLED_WARNING_STAGES.has(stage));
+  });
   const rerankSucceeded = stages.some(
     (entry) => entry.stage === "rerank" && entry.status === "success"
   );
-  const retryable = stages.some((entry) =>
-    entry.status === "failed" ||
-    (entry.status === "partial" && !SETTLED_WARNING_STAGES.has(entry.stage))
-  );
+  const retryable = failedStage !== undefined;
 
   if (failedStage) {
     return {
@@ -42,13 +45,6 @@ export function concludeDailyPipeline(stages: DailyPipelineStageRecord[]): Daily
       retryable: true,
       failedStage
     };
-  }
-
-  const incompleteOutput = stages.some((entry) =>
-    entry.status === "partial" && !SETTLED_WARNING_STAGES.has(entry.stage)
-  );
-  if (incompleteOutput) {
-    return { status: rerankSucceeded ? "partial" : "failed", retryable };
   }
 
   const hasWarnings = stages.some((entry) =>
@@ -72,8 +68,5 @@ export function findDailyResumeStage(
 }
 
 export function isDailyPipelineRetryable(stages: DailyPipelineStageRecord[]): boolean {
-  return stages.some((entry) =>
-    entry.status === "failed" ||
-    (entry.status === "partial" && !SETTLED_WARNING_STAGES.has(entry.stage))
-  );
+  return concludeDailyPipeline(stages).retryable;
 }

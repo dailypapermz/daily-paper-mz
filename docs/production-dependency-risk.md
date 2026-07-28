@@ -17,7 +17,7 @@ After the two targeted groups, `npm audit --omit=dev` reports three high nodes i
 
 | Node | Reachability in this application | Decision and containment |
 |---|---|---|
-| `postcss` 8.5.17 | Build-time CSS processing. Repository CSS is trusted source; users cannot upload CSS or source maps. | Do not override the exact version selected by Next independently. Keep clean-checkout builds and dependency audit monitoring; upgrade with a compatible Next/OpenNext release. |
+| `postcss` 8.4.31 | Build-time CSS processing. Repository CSS is trusted source; users cannot upload CSS or source maps. | Do not override the exact version selected by Next independently. Keep clean-checkout builds and dependency audit monitoring; upgrade with a compatible Next/OpenNext release. |
 | `sharp` 0.34.x | Next build/runtime dependency. The application has no `next/image` usage or attacker-controlled image optimization input today. | Do not force Sharp 0.35 outside Next's declared compatibility range. The protected route boundary limits current exposure; re-evaluate immediately before adding image optimization or uploads. |
 | `next` 15.5.21 | Core production framework and therefore reachable, although the reported audit paths above are transitive PostCSS/Sharp findings. | `npm audit fix --force` proposes a downgrade to Next 14.2.35, which is incompatible with the accepted Next/OpenNext stack. Retain 15.5.21, monitor an upstream compatible release, and keep the Linux workerd, protected-route, liveness, artifact, and production-build gates mandatory. |
 

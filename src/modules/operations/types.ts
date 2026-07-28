@@ -66,6 +66,7 @@ export type OperationsRunRecord = {
   ingestionStatus: "running" | "success" | "failed" | "unknown";
   pipelineStatus: OperationsRunStatus;
   startedAt: Date;
+  pipelineStartedAt?: Date;
   finishedAt?: Date;
   pipelineFinishedAt?: Date;
   errorMessage?: string;

@@ -62,6 +62,20 @@ export class PrismaDailyIngestionRepository implements DailyIngestionRepository 
 
   private async resolveExistingRun(existing: Parameters<typeof mapRunSummary>[0]) {
     if (existing.status === "SUCCESS") {
+      if (existing.source === "AGGREGATED" && existing.pipelineStatus) {
+        if (existing.pipelineStatus === "COMPLETE" || existing.pipelineStatus === "COMPLETE_WITH_WARNINGS") {
+          return { run: mapRunSummary(existing), disposition: "already_succeeded" as const };
+        }
+        const now = this.now();
+        const staleBefore = new Date(now.getTime() - this.staleAfterMs);
+        if (existing.pipelineStatus === "RUNNING") {
+          const lastHeartbeat = existing.pipelineStartedAt ?? existing.updatedAt;
+          if (lastHeartbeat > staleBefore) {
+            return { run: mapRunSummary(existing), disposition: "already_running" as const };
+          }
+        }
+        return this.claimPipelineRun(existing, now, staleBefore);
+      }
       return { run: mapRunSummary(existing), disposition: "already_succeeded" as const };
     }
     const now = this.now();
@@ -87,6 +101,7 @@ export class PrismaDailyIngestionRepository implements DailyIngestionRepository 
           errorMessage: null,
           attempt: { increment: 1 },
           pipelineStatus: existing.source === "AGGREGATED" ? "RUNNING" : null,
+          pipelineStartedAt: null,
           pipelineFinishedAt: null
         }
       });
@@ -100,6 +115,45 @@ export class PrismaDailyIngestionRepository implements DailyIngestionRepository 
     return {
       run: mapRunSummary(current),
       disposition: claimed ? ("retry" as const) : dispositionForStatus(current.status)
+    };
+  }
+
+  private async claimPipelineRun(
+    existing: Parameters<typeof mapRunSummary>[0],
+    now: Date,
+    staleBefore: Date
+  ) {
+    const expectedPipelineStatus = existing.pipelineStatus;
+    const claimed = await this.db.dailyIngestionRun.updateMany({
+      where: {
+        id: existing.id,
+        status: "SUCCESS",
+        attempt: existing.attempt,
+        pipelineStatus: expectedPipelineStatus,
+        ...(expectedPipelineStatus === "RUNNING"
+          ? {
+              OR: [
+                { pipelineStartedAt: { lte: staleBefore } },
+                { pipelineStartedAt: null, updatedAt: { lte: staleBefore } }
+              ]
+            }
+          : {})
+      },
+      data: {
+        attempt: { increment: 1 },
+        pipelineStatus: "RUNNING",
+        pipelineStartedAt: now,
+        pipelineFinishedAt: null
+      }
+    });
+    const current = await this.db.dailyIngestionRun.findUniqueOrThrow({
+      where: { id: existing.id }
+    });
+    return {
+      run: mapRunSummary(current),
+      disposition: claimed.count === 1
+        ? ("pipeline_acquired" as const)
+        : dispositionForPipeline(current.pipelineStatus)
     };
   }
 
@@ -202,6 +256,7 @@ export class PrismaDailyIngestionRepository implements DailyIngestionRepository 
         data: {
           status: "SUCCESS",
           pipelineStatus: input.pipelineInitialization ? "RUNNING" : undefined,
+          pipelineStartedAt: input.pipelineInitialization ? finishedAt : undefined,
           finishedAt,
           candidatesCount: input.entries.length,
           errorMessage: null
@@ -222,6 +277,7 @@ export class PrismaDailyIngestionRepository implements DailyIngestionRepository 
       data: {
         status: "FAILED",
         pipelineStatus: "FAILED",
+        pipelineStartedAt: null,
         finishedAt,
         pipelineFinishedAt: finishedAt,
         errorMessage: input.errorMessage
@@ -236,15 +292,25 @@ export class PrismaDailyIngestionRepository implements DailyIngestionRepository 
 
   async setPipelineOutcome(input: {
     runId: string;
+    attempt: number;
     status: "complete" | "complete_with_warnings" | "partial" | "failed";
   }) {
-    const run = await this.db.dailyIngestionRun.update({
-      where: { id: input.runId },
+    const updated = await this.db.dailyIngestionRun.updateMany({
+      where: {
+        id: input.runId,
+        status: "SUCCESS",
+        pipelineStatus: "RUNNING",
+        attempt: input.attempt
+      },
       data: {
         pipelineStatus: toDbPipelineStatus(input.status),
         pipelineFinishedAt: this.now()
       }
     });
+    if (updated.count !== 1) {
+      throw new Error("Daily pipeline lease was lost before its outcome could be recorded.");
+    }
+    const run = await this.db.dailyIngestionRun.findUniqueOrThrow({ where: { id: input.runId } });
     return mapRunSummary(run);
   }
 
@@ -390,7 +456,9 @@ function mapRunSummary(run: {
   runDate: Date;
   startedAt: Date;
   finishedAt: Date | null;
+  pipelineStartedAt: Date | null;
   pipelineFinishedAt: Date | null;
+  updatedAt: Date;
   candidatesCount: number;
   errorMessage: string | null;
 }): DailyIngestionRunSummary {
@@ -404,6 +472,7 @@ function mapRunSummary(run: {
     runDate: toIsoDate(run.runDate),
     startedAt: toIsoDate(run.startedAt),
     finishedAt: run.finishedAt ? toIsoDate(run.finishedAt) : undefined,
+    pipelineStartedAt: run.pipelineStartedAt ? toIsoDate(run.pipelineStartedAt) : undefined,
     pipelineFinishedAt: run.pipelineFinishedAt ? toIsoDate(run.pipelineFinishedAt) : undefined,
     candidatesCount: run.candidatesCount,
     errorMessage: run.errorMessage ?? undefined
@@ -431,6 +500,14 @@ function toDbPipelineStageStatus(status: "success" | "partial") {
 
 function dispositionForStatus(status: "RUNNING" | "SUCCESS" | "FAILED") {
   return status === "SUCCESS" ? ("already_succeeded" as const) : ("already_running" as const);
+}
+
+function dispositionForPipeline(
+  status: "RUNNING" | "COMPLETE" | "COMPLETE_WITH_WARNINGS" | "PARTIAL" | "FAILED" | null
+) {
+  return status === "COMPLETE" || status === "COMPLETE_WITH_WARNINGS"
+    ? ("already_succeeded" as const)
+    : ("already_running" as const);
 }
 
 function isUniqueConflict(error: unknown): boolean {

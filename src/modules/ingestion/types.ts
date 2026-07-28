@@ -10,6 +10,7 @@ export type DailyPipelineRunStatusValue =
 export type DailyRunDisposition =
   | "acquired"
   | "retry"
+  | "pipeline_acquired"
   | "already_running"
   | "already_succeeded";
 
@@ -58,6 +59,7 @@ export type DailyIngestionRunSummary = {
   runDate: string;
   startedAt: string;
   finishedAt?: string;
+  pipelineStartedAt?: string;
   pipelineFinishedAt?: string;
   candidatesCount: number;
   errorMessage?: string;
@@ -125,6 +127,7 @@ export interface DailyIngestionRepository {
   markRunFailed(input: { runId: string; attempt: number; errorMessage: string }): Promise<DailyIngestionRunSummary>;
   setPipelineOutcome(input: {
     runId: string;
+    attempt: number;
     status: Exclude<DailyPipelineRunStatusValue, "running">;
   }): Promise<DailyIngestionRunSummary>;
   getLatestRun(input?: { source?: DailyIngestionRunSourceValue }): Promise<DailyIngestionRunSummary | null>;

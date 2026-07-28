@@ -19,6 +19,10 @@ const cloudOutcomeMigrationPath = resolve(
   projectDir,
   "prisma/postgresql/migrations/20260728170000_daily_pipeline_outcomes/migration.sql"
 );
+const cloudPipelineLeaseMigrationPath = resolve(
+  projectDir,
+  "prisma/postgresql/migrations/20260728190000_pipeline_lease_fencing/migration.sql"
+);
 
 function definitionNames(schema) {
   return new Set(
@@ -86,10 +90,11 @@ test("both Prisma schemas validate without connecting to a database", () => {
   ));
 });
 
-test("the immutable PostgreSQL baseline and incremental outcome migration match the current schema", async () => {
-  const [migration, outcomeMigration] = await Promise.all([
+test("the immutable PostgreSQL baseline and incremental pipeline migrations match the current schema", async () => {
+  const [migration, outcomeMigration, pipelineLeaseMigration] = await Promise.all([
     readFile(cloudMigrationPath, "utf8"),
-    readFile(cloudOutcomeMigrationPath, "utf8")
+    readFile(cloudOutcomeMigrationPath, "utf8"),
+    readFile(cloudPipelineLeaseMigrationPath, "utf8")
   ]);
   const generated = runPrisma(
     ["migrate", "diff", "--from-empty", "--to-schema-datamodel", cloudSchemaPath, "--script"],
@@ -106,6 +111,9 @@ test("the immutable PostgreSQL baseline and incremental outcome migration match 
   );
   assert.match(outcomeMigration, /CREATE TYPE "DailyPipelineRunStatus" AS ENUM/);
   assert.match(outcomeMigration, /ADD COLUMN "pipelineStatus"/);
+  assert.match(pipelineLeaseMigration, /ADD COLUMN "pipelineStartedAt"/);
+  assert.match(pipelineLeaseMigration, /DailyIngestionRun_pipelineStatus_pipelineStartedAt_idx/);
   assert.match(generated, /CREATE TYPE "DailyPipelineRunStatus" AS ENUM/);
   assert.match(generated, /"pipelineStatus" "DailyPipelineRunStatus"/);
+  assert.match(generated, /"pipelineStartedAt" TIMESTAMP\(3\)/);
 });

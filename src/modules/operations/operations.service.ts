@@ -9,6 +9,7 @@ import { sanitizeOperationsDetails, sanitizeOperationsError } from "./sanitize";
 
 export const OPERATIONS_DEFAULT_LIMIT = 10;
 export const OPERATIONS_MAX_LIMIT = 30;
+export const OPERATIONS_PIPELINE_STALE_AFTER_MS = 180 * 60 * 1000;
 const EXPECTED_SOURCES = "arxiv+biorxiv+journal+pubmed";
 
 export class OperationsError extends Error {
@@ -23,24 +24,33 @@ export class OperationsError extends Error {
 }
 
 export class OperationsService {
-  constructor(private readonly repository: OperationsRepository) {}
+  private readonly now: () => Date;
+  private readonly pipelineStaleAfterMs: number;
+
+  constructor(
+    private readonly repository: OperationsRepository,
+    options?: { now?: () => Date; pipelineStaleAfterMs?: number }
+  ) {
+    this.now = options?.now ?? (() => new Date());
+    this.pipelineStaleAfterMs = options?.pipelineStaleAfterMs ?? OPERATIONS_PIPELINE_STALE_AFTER_MS;
+  }
 
   async listRecentRuns(limit = OPERATIONS_DEFAULT_LIMIT): Promise<OperationsRun[]> {
     const boundedLimit = Math.max(1, Math.min(Math.trunc(limit), OPERATIONS_MAX_LIMIT));
     const rows = await this.repository.listRecentAggregatedRuns(boundedLimit);
-    return rows.map(projectRun);
+    return rows.map((row) => projectRun(row, this.now(), this.pipelineStaleAfterMs));
   }
 
   async getRun(runId: string): Promise<OperationsRun | null> {
     const row = await this.repository.getAggregatedRun(runId);
-    return row ? projectRun(row) : null;
+    return row ? projectRun(row, this.now(), this.pipelineStaleAfterMs) : null;
   }
 
   async getRetryDispatch(runId: string): Promise<{ runDate: string }> {
     const row = await this.repository.getAggregatedRun(runId);
     if (!row) throw new OperationsError("RUN_NOT_FOUND", "The requested run was not found.", 404);
-    const run = projectRun(row);
-    if (run.status === "running") {
+    const run = projectRun(row, this.now(), this.pipelineStaleAfterMs);
+    if (run.status === "running" && !run.retryable) {
       throw new OperationsError("RUN_ALREADY_RUNNING", "A running operation cannot be retried.", 409);
     }
     if (run.status === "complete" || run.status === "complete_with_warnings") {
@@ -62,7 +72,11 @@ export class OperationsService {
   }
 }
 
-function projectRun(row: OperationsRunRecord): OperationsRun {
+function projectRun(
+  row: OperationsRunRecord,
+  now: Date,
+  pipelineStaleAfterMs: number
+): OperationsRun {
   const stages = OPERATIONS_STAGE_ORDER.flatMap((stage) => {
     const stored = row.stages.find((entry) => entry.stage === stage);
     if (!stored) return [];
@@ -91,7 +105,7 @@ function projectRun(row: OperationsRunRecord): OperationsRun {
     startedAt: row.startedAt.toISOString(),
     ...(finishedAt ? { finishedAt: finishedAt.toISOString() } : {}),
     ...(errorSummary ? { errorSummary } : {}),
-    retryable: isRetryable(status, stages)
+    retryable: isRetryable(status, stages, row, now, pipelineStaleAfterMs)
   };
 }
 
@@ -102,7 +116,17 @@ function deriveStatus(row: OperationsRunRecord): OperationsRun["status"] {
   return "unknown";
 }
 
-function isRetryable(status: OperationsRun["status"], stages: OperationsRun["stages"]): boolean {
+function isRetryable(
+  status: OperationsRun["status"],
+  stages: OperationsRun["stages"],
+  row: OperationsRunRecord,
+  now: Date,
+  pipelineStaleAfterMs: number
+): boolean {
+  if (status === "running") {
+    const lastHeartbeat = row.pipelineStartedAt ?? row.startedAt;
+    return lastHeartbeat.getTime() <= now.getTime() - pipelineStaleAfterMs;
+  }
   if (status !== "failed" && status !== "partial") return false;
   return stages.length === 0 || stages.some((stage) =>
     stage.status === "failed" ||

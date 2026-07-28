@@ -86,7 +86,7 @@ export class DefaultDailyIngestionService implements DailyIngestionService {
         runId: lease.run.id
       });
     }
-    if (lease.disposition === "already_succeeded") {
+    if (lease.disposition === "already_succeeded" || lease.disposition === "pipeline_acquired") {
       const candidates = await this.repository.listCandidatesByRun(lease.run.id);
       return {
         run: lease.run,
@@ -203,6 +203,7 @@ export class DefaultDailyIngestionService implements DailyIngestionService {
 
   async setPipelineOutcome(input: {
     runId: string;
+    attempt: number;
     status: "complete" | "complete_with_warnings" | "partial" | "failed";
   }) {
     return this.repository.setPipelineOutcome(input);

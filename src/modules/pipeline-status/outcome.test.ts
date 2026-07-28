@@ -29,7 +29,8 @@ describe("daily pipeline outcome policy", () => {
   it("marks usable but incomplete output partial and retryable", () => {
     expect(concludeDailyPipeline(stages({ representation: "partial" }))).toEqual({
       status: "partial",
-      retryable: true
+      retryable: true,
+      failedStage: "representation"
     });
     expect(concludeDailyPipeline(stages({ summary: "failed" }))).toEqual({
       status: "partial",
@@ -46,5 +47,30 @@ describe("daily pipeline outcome policy", () => {
     });
     expect(findDailyResumeStage(stages({ ingestion: "partial", enrichment: "partial" }))).toBeUndefined();
     expect(findDailyResumeStage(stages({ representation: "partial" }))).toBe("representation");
+  });
+
+  it("never treats missing or unsettled stages as complete", () => {
+    expect(concludeDailyPipeline([])).toEqual({
+      status: "failed",
+      retryable: true,
+      failedStage: "ingestion"
+    });
+    expect(concludeDailyPipeline(stages().filter((entry) => entry.stage !== "normalization"))).toEqual({
+      status: "partial",
+      retryable: true,
+      failedStage: "normalization"
+    });
+    for (const status of ["pending", "running", "skipped"] as const) {
+      expect(concludeDailyPipeline(stages({ representation: status }))).toEqual({
+        status: "partial",
+        retryable: true,
+        failedStage: "representation"
+      });
+    }
+    expect(concludeDailyPipeline(stages({ summary: "pending" }))).toEqual({
+      status: "partial",
+      retryable: true,
+      failedStage: "summary"
+    });
   });
 });

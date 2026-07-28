@@ -45,6 +45,25 @@ describe("OperationsService", () => {
     await expect(service.getRetryDispatch("run-1")).resolves.toEqual({ runDate: "2026-07-27" });
   });
 
+  it("allows the fixed idempotent retry path only after a running pipeline lease is stale", async () => {
+    const now = new Date("2026-07-28T06:00:00.000Z");
+    const stale = new OperationsService(repository({
+      getAggregatedRun: vi.fn().mockResolvedValue(runRecord({
+        pipelineStatus: "running",
+        pipelineStartedAt: new Date("2026-07-28T02:59:59.000Z")
+      }))
+    }), { now: () => now });
+    const active = new OperationsService(repository({
+      getAggregatedRun: vi.fn().mockResolvedValue(runRecord({
+        pipelineStatus: "running",
+        pipelineStartedAt: new Date("2026-07-28T03:00:01.000Z")
+      }))
+    }), { now: () => now });
+
+    await expect(stale.getRetryDispatch("run-1")).resolves.toEqual({ runDate: "2026-07-27" });
+    await expect(active.getRetryDispatch("run-1")).rejects.toMatchObject({ code: "RUN_ALREADY_RUNNING" });
+  });
+
   it.each([
     ["running", "RUN_ALREADY_RUNNING"],
     ["complete", "RUN_ALREADY_COMPLETE"],
@@ -94,6 +113,7 @@ function runRecord(overrides: Partial<OperationsRunRecord> = {}): OperationsRunR
     ingestionStatus: "success",
     pipelineStatus: "failed",
     startedAt: new Date("2026-07-28T00:00:00.000Z"),
+    pipelineStartedAt: new Date(),
     finishedAt: new Date("2026-07-28T00:05:00.000Z"),
     stages: [{ stage: "summary", status: "failed" }],
     ...overrides

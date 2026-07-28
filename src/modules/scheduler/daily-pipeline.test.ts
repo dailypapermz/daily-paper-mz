@@ -97,13 +97,18 @@ describe("runDailyRecommendationPipeline", () => {
     mocks.runRerank.mockResolvedValue({ run: { id: "rerank-1" } });
     mocks.listStages.mockResolvedValue([
       { stage: "ingestion", status: "success" },
+      { stage: "enrichment", status: "success" },
+      { stage: "normalization", status: "success" },
+      { stage: "representation", status: "success" },
+      { stage: "recall", status: "success" },
+      { stage: "rerank", status: "success" },
       { stage: "summary", status: "success" }
     ]);
   });
 
   it("runs aggregated ingestion and downstream stages once", async () => {
     mocks.runAggregatedIngestion.mockResolvedValue({
-      run: { id: "run-1" },
+      run: { id: "run-1", attempt: 1 },
       disposition: "acquired",
       sourceSummaries: [{ source: "arxiv", candidatesCount: 2 }]
     });
@@ -154,7 +159,7 @@ describe("runDailyRecommendationPipeline", () => {
       { stage: "summary", status: "success" }
     ]);
     mocks.runAggregatedIngestion.mockResolvedValue({
-      run: { id: "run-1" },
+      run: { id: "run-1", attempt: 1 },
       disposition: "acquired",
       sourceSummaries: [
         {
@@ -192,7 +197,7 @@ describe("runDailyRecommendationPipeline", () => {
 
   it("reuses a completed persistent run without duplicating downstream stages", async () => {
     mocks.runAggregatedIngestion.mockResolvedValue({
-      run: { id: "run-existing" },
+      run: { id: "run-existing", attempt: 1 },
       disposition: "already_succeeded",
       sourceSummaries: [{ source: "pubmed", status: "success", candidatesCount: 10 }]
     });
@@ -219,8 +224,8 @@ describe("runDailyRecommendationPipeline", () => {
 
   it("resumes from the first partial downstream stage", async () => {
     mocks.runAggregatedIngestion.mockResolvedValue({
-      run: { id: "run-existing" },
-      disposition: "already_succeeded",
+      run: { id: "run-existing", attempt: 2 },
+      disposition: "pipeline_acquired",
       sourceSummaries: [{ source: "pubmed", status: "success", candidatesCount: 10 }]
     });
     mocks.listStages
@@ -257,7 +262,7 @@ describe("runDailyRecommendationPipeline", () => {
 
   it("keeps successful ingestion reusable when a downstream stage fails", async () => {
     mocks.runAggregatedIngestion.mockResolvedValue({
-      run: { id: "run-1" },
+      run: { id: "run-1", attempt: 1 },
       disposition: "acquired",
       sourceSummaries: [{ source: "arxiv", status: "success", candidatesCount: 2 }]
     });
@@ -289,6 +294,7 @@ describe("runDailyRecommendationPipeline", () => {
     expect(result).toMatchObject({ status: "failed", failedStage: "enrichment", retryable: true });
     expect(mocks.failStage).toHaveBeenCalledWith({
       runId: "run-1",
+      attempt: 1,
       stage: "enrichment",
       errorMessage: "enrichment failed"
     });
@@ -296,8 +302,8 @@ describe("runDailyRecommendationPipeline", () => {
 
   it("resumes a persisted hard failure without rerunning successful ingestion", async () => {
     mocks.runAggregatedIngestion.mockResolvedValue({
-      run: { id: "run-existing" },
-      disposition: "already_succeeded",
+      run: { id: "run-existing", attempt: 2 },
+      disposition: "pipeline_acquired",
       sourceSummaries: [{ source: "pubmed", status: "success", candidatesCount: 10 }]
     });
     mocks.listStages
@@ -349,5 +355,99 @@ describe("runDailyRecommendationPipeline", () => {
       retryable: false
     });
     expect(mocks.failRun).not.toHaveBeenCalled();
+  });
+
+  it("reports a pre-acquisition repository failure instead of completing an empty pipeline", async () => {
+    mocks.runAggregatedIngestion.mockRejectedValue(new Error("database unavailable"));
+
+    const result = await runDailyRecommendationPipeline({ sources: ["pubmed"] });
+
+    expect(result).toMatchObject({
+      status: "failed",
+      disposition: "executed",
+      failedStage: "ingestion",
+      retryable: true
+    });
+    expect(result.sources).toEqual([{
+      source: "pubmed",
+      status: "failed",
+      errorMessage: "database unavailable"
+    }]);
+    expect(mocks.failRun).not.toHaveBeenCalled();
+    expect(mocks.failStage).not.toHaveBeenCalled();
+    expect(mocks.setPipelineOutcome).not.toHaveBeenCalled();
+  });
+
+  it("returns already-running when a stale attempt loses the downstream lease", async () => {
+    mocks.runAggregatedIngestion.mockResolvedValue({
+      run: { id: "run-1", attempt: 2 },
+      disposition: "pipeline_acquired",
+      sourceSummaries: [{ source: "pubmed", status: "success", candidatesCount: 10 }]
+    });
+    mocks.listStages.mockResolvedValueOnce([
+      { stage: "ingestion", status: "success" },
+      { stage: "enrichment", status: "failed" },
+      { stage: "normalization", status: "skipped" },
+      { stage: "representation", status: "skipped" },
+      { stage: "recall", status: "skipped" },
+      { stage: "rerank", status: "skipped" },
+      { stage: "summary", status: "skipped" }
+    ]);
+    mocks.startStage.mockRejectedValueOnce(
+      new Error("Daily pipeline lease was lost before stage update")
+    );
+
+    const result = await runDailyRecommendationPipeline({ sources: ["pubmed"] });
+
+    expect(result).toMatchObject({
+      runId: "run-1",
+      status: "running",
+      disposition: "already_running",
+      retryable: false
+    });
+    expect(mocks.enrichRun).not.toHaveBeenCalled();
+    expect(mocks.failStage).not.toHaveBeenCalled();
+  });
+
+  it("records a stage failure when starting that stage fails before its transition", async () => {
+    mocks.runAggregatedIngestion.mockResolvedValue({
+      run: { id: "run-1", attempt: 1 },
+      disposition: "acquired",
+      sourceSummaries: [{ source: "pubmed", status: "success", candidatesCount: 10 }]
+    });
+    mocks.startStage.mockRejectedValueOnce(new Error("database write unavailable"));
+    mocks.listStages
+      .mockResolvedValueOnce([
+        { stage: "ingestion", status: "success" },
+        { stage: "enrichment", status: "pending" },
+        { stage: "normalization", status: "pending" },
+        { stage: "representation", status: "pending" },
+        { stage: "recall", status: "pending" },
+        { stage: "rerank", status: "pending" },
+        { stage: "summary", status: "pending" }
+      ])
+      .mockResolvedValueOnce([
+        { stage: "ingestion", status: "success" },
+        { stage: "enrichment", status: "failed" },
+        { stage: "normalization", status: "skipped" },
+        { stage: "representation", status: "skipped" },
+        { stage: "recall", status: "skipped" },
+        { stage: "rerank", status: "skipped" },
+        { stage: "summary", status: "skipped" }
+      ]);
+
+    const result = await runDailyRecommendationPipeline({ sources: ["pubmed"] });
+
+    expect(mocks.failStage).toHaveBeenCalledWith({
+      runId: "run-1",
+      attempt: 1,
+      stage: "enrichment",
+      errorMessage: "database write unavailable"
+    });
+    expect(result).toMatchObject({
+      status: "failed",
+      failedStage: "enrichment",
+      retryable: true
+    });
   });
 });
