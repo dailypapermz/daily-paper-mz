@@ -77,6 +77,27 @@ test("artifact contract rejects a filesystem-backed Prisma query compiler", asyn
   await assert.rejects(validateOpenNextArtifact(root), /filesystem-backed Prisma query compiler/);
 });
 
+test("artifact contract ignores compiler templates in Prisma generator sources", async (context) => {
+  const root = join(import.meta.dirname, `.tmp-generator-open-next-${process.pid}`);
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const generatorDir = join(
+    root,
+    "server-functions",
+    "default",
+    "node_modules",
+    "@prisma",
+    "client",
+    "generator-build"
+  );
+  await mkdir(join(root, "assets"), { recursive: true });
+  await mkdir(generatorDir, { recursive: true });
+  await writeFile(join(root, "worker.js"), "export default {};\n", "utf8");
+  await writeFile(join(root, "assets", "index.txt"), "public\n", "utf8");
+  await writeFile(join(generatorDir, "index.js"), "const template = 'query_compiler_bg.wasm';\n", "utf8");
+
+  await assert.doesNotReject(validateOpenNextArtifact(root));
+});
+
 test("OpenNext pruning removes only generated native Prisma engines", async (context) => {
   const root = join(import.meta.dirname, `.tmp-prisma-prune-${process.pid}`);
   context.after(() => rm(root, { recursive: true, force: true }));
