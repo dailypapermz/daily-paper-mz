@@ -747,7 +747,7 @@ model DailyRecallResult {
   rank                 Int
   selected             Boolean                 @default(true)
   recallScore          Float
-  retrievalScore       Float                   @map("semanticScore")
+  semanticScore        Float
   denseSimilarityScore Float                   @default(0)
   feedbackAdjustment   Float                   @default(0)
   tagOverlapScore      Float

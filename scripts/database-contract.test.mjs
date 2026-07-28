@@ -42,6 +42,9 @@ test("local and cloud schemas use independent providers and generated clients", 
   assert.match(local, /output\s*=\s*"\.\.\/src\/generated\/prisma"/);
   assert.match(cloud, /provider\s*=\s*"postgresql"/);
   assert.match(cloud, /output\s*=\s*"\.\.\/\.\.\/src\/generated\/prisma-postgresql"/);
+  assert.match(local, /^\s+semanticScore\s+Float\s*$/m);
+  assert.match(cloud, /^\s+semanticScore\s+Float\s*$/m);
+  assert.doesNotMatch(cloud, /^\s+retrievalScore\s+Float/m);
   assert.match(localLock, /provider\s*=\s*"sqlite"/);
   assert.match(cloudLock, /provider\s*=\s*"postgresql"/);
   const localDefinitions = definitionNames(local);
