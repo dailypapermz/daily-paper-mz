@@ -1,7 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { latestTriageActions, type TriageAction } from "./feedback-state";
+import {
+  excludeDismissedRecommendations,
+  latestTriageActions,
+  type TriageAction
+} from "./feedback-state";
 
 const IS_CLOUD_MODE = process.env.NEXT_PUBLIC_DEPLOYMENT_MODE === "cloud";
 
@@ -150,7 +154,10 @@ export default function HomePage() {
     };
   }, [sourceFilter, showSelectedOnly, refreshTick]);
 
-  const recommendations = useMemo(() => feed?.recommendations ?? [], [feed]);
+  const recommendations = useMemo(
+    () => excludeDismissedRecommendations(feed?.recommendations ?? [], triageState),
+    [feed, triageState]
+  );
 
   async function handleTriageAction(candidateId: string, action: TriageAction) {
     if (!feed) {
@@ -359,6 +366,9 @@ export default function HomePage() {
           {exportError ? <p className="error">Failed to export to Obsidian: {exportError}</p> : null}
 
           <section className="recommendation-list">
+            {recommendations.length === 0 ? (
+              <p>All recommendations in this view have been dismissed.</p>
+            ) : null}
             {recommendations.map((item) => {
               const edit = getEditState(item);
               return (

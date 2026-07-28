@@ -1,5 +1,12 @@
 export type TriageAction = "save" | "dismiss" | "promote";
 
+export function excludeDismissedRecommendations<T extends { candidateId: string }>(
+  recommendations: readonly T[],
+  actions: Readonly<Record<string, TriageAction | undefined>>
+): T[] {
+  return recommendations.filter((recommendation) => actions[recommendation.candidateId] !== "dismiss");
+}
+
 export function latestTriageActions(logs: unknown): Record<string, TriageAction> {
   if (!Array.isArray(logs)) {
     return {};
