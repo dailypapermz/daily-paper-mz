@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { latestTriageActions, type TriageAction } from "./feedback-state";
 
 const IS_CLOUD_MODE = process.env.NEXT_PUBLIC_DEPLOYMENT_MODE === "cloud";
 
@@ -50,7 +51,6 @@ type RecommendationFeed = {
   recommendations: Recommendation[];
 };
 
-type TriageAction = "save" | "dismiss" | "promote";
 type LabelEditState = {
   contentRecallLabel: string;
   category: "" | "method" | "biology" | "resource" | "benchmark";
@@ -79,6 +79,8 @@ export default function HomePage() {
       try {
         setLoading(true);
         setError(null);
+        setActionError(null);
+        setTriageState({});
 
         const query = new URLSearchParams();
         query.set("selectedOnly", showSelectedOnly ? "true" : "false");
@@ -96,6 +98,39 @@ export default function HomePage() {
 
         const payload = (await response.json()) as { feed: RecommendationFeed | null };
         setFeed(payload.feed);
+
+        if (payload.feed) {
+          try {
+            const feedbackQuery = new URLSearchParams({
+              runId: payload.feed.runId,
+              limit: "500"
+            });
+            const feedbackResponse = await fetch(`/api/feedback/logs?${feedbackQuery.toString()}`, {
+              method: "GET",
+              signal: controller.signal
+            });
+            if (!feedbackResponse.ok) {
+              throw new Error(`Feedback request failed with status ${feedbackResponse.status}`);
+            }
+
+            const feedbackPayload = (await feedbackResponse.json()) as {
+              status: string;
+              logs?: unknown;
+            };
+            if (feedbackPayload.status !== "ok") {
+              throw new Error("Feedback request did not return an ok status");
+            }
+            setTriageState(latestTriageActions(feedbackPayload.logs));
+          } catch (feedbackError) {
+            if (!controller.signal.aborted) {
+              setActionError(
+                feedbackError instanceof Error
+                  ? feedbackError.message
+                  : "Unknown feedback load error"
+              );
+            }
+          }
+        }
       } catch (loadError) {
         if (controller.signal.aborted) {
           return;
