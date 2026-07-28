@@ -36,11 +36,19 @@ export async function validateOpenNextArtifact(root) {
   for (const file of entries) {
     if (!textExtensions.has(extname(file).toLowerCase())) continue;
     const content = await readFile(file, "utf8");
+    const normalizedFile = relative(root, file).replaceAll("\\", "/");
     if (/-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/.test(content)) {
       throw new Error(`Worker artifact contains a private key marker in ${relative(root, file)}.`);
     }
     if (containsCredentialedPostgresUrl(content)) {
       throw new Error(`Worker artifact contains an embedded credentialed PostgreSQL URL in ${relative(root, file)}.`);
+    }
+    const isPrismaGeneratorSource =
+      /(?:^|\/)node_modules\/@prisma\/client\/generator-build\//.test(normalizedFile);
+    if (/query_compiler_bg\.wasm/.test(content) && !isPrismaGeneratorSource) {
+      throw new Error(
+        `Worker artifact contains a filesystem-backed Prisma query compiler reference in ${relative(root, file)}.`
+      );
     }
     if (/qyapi\.weixin\.qq\.com\/cgi-bin\/webhook\/send\?key=/i.test(content)) {
       throw new Error(`Worker artifact contains an embedded webhook URL in ${relative(root, file)}.`);

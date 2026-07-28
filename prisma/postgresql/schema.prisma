@@ -5,7 +5,6 @@ generator client {
 
 generator workerClient {
   provider = "prisma-client-js"
-  engineType = "client"
 }
 
 datasource db {

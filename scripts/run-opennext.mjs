@@ -1,6 +1,8 @@
 import { spawnSync } from "node:child_process";
 import path from "node:path";
 
+import { pruneOpenNextNativePrismaEngines } from "./prune-opennext-prisma-engines.mjs";
+
 const [command, ...forwardedArgs] = process.argv.slice(2);
 const supportedCommands = new Set(["build", "preview", "deploy"]);
 
@@ -52,6 +54,10 @@ const result = spawnSync(
 if (result.error) {
   console.error(`OpenNext ${command} could not start: ${result.error.message}`);
   process.exit(1);
+}
+
+if (result.status === 0 && command === "build") {
+  await pruneOpenNextNativePrismaEngines(path.resolve(".open-next"));
 }
 
 process.exit(result.status ?? 1);

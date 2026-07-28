@@ -26,6 +26,14 @@ const artifactContract = await readFile(
   new URL("./cloudflare-artifact-contract.mjs", import.meta.url),
   "utf8"
 );
+const openNextRunner = await readFile(
+  new URL("./run-opennext.mjs", import.meta.url),
+  "utf8"
+);
+const prismaEnginePruner = await readFile(
+  new URL("./prune-opennext-prisma-engines.mjs", import.meta.url),
+  "utf8"
+);
 
 test("Cloudflare scripts preserve the existing local commands", () => {
   assert.equal(packageJson.scripts.dev, "next dev");
@@ -55,7 +63,7 @@ test("Wrangler targets a protected OpenNext Worker", () => {
 test("Worker build selects the OpenNext-patchable Neon client without replacing Node clients", () => {
   const workerGenerator = postgresSchema.match(/generator workerClient\s*\{([\s\S]*?)\}/)?.[1] ?? "";
   assert.doesNotMatch(workerGenerator, /output\s*=/);
-  assert.match(workerGenerator, /engineType\s*=\s*["']client["']/);
+  assert.doesNotMatch(workerGenerator, /engineType\s*=/);
   assert.match(nextConfig, /edge-application-client\.ts/);
   assert.match(nextConfig, /edge-application-json\.ts/);
   assert.match(nextConfig, /serverExternalPackages:\s*\["@prisma\/client",\s*"\.prisma\/client"\]/);
@@ -149,6 +157,10 @@ test("Linux workerd preview is exercised without production secrets", () => {
   assert.match(previewSmoke, /cache-control/);
   assert.match(artifactContract, /Missing \.open-next artifact/);
   assert.match(artifactContract, /query_engine\|libquery_engine/);
+  assert.match(artifactContract, /query_compiler_bg\\\.wasm/);
+  assert.match(openNextRunner, /pruneOpenNextNativePrismaEngines/);
+  assert.match(prismaEnginePruner, /node_modules\\\/\\\.prisma\\\/client/);
+  assert.match(prismaEnginePruner, /unlink\(file\)/);
   assert.match(artifactContract, /PRIVATE KEY/);
   assert.match(artifactContract, /credentialed PostgreSQL URL/);
 });
