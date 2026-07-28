@@ -1,0 +1,67 @@
+name: Cloud profile maintenance
+
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: "Sync Zotero first; after selecting collection priorities, refresh the profile"
+        required: true
+        default: sync
+        type: choice
+        options:
+          - sync
+          - refresh
+
+permissions:
+  contents: read
+
+concurrency:
+  group: daily-paper-cloud-profile-${{ github.repository }}-production
+  cancel-in-progress: false
+
+jobs:
+  profile:
+    name: Run low-frequency cloud profile operation
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 120
+    env:
+      DEPLOYMENT_MODE: cloud
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      ZOTERO_TRANSPORT: web
+      ZOTERO_ID: ${{ secrets.ZOTERO_ID }}
+      ZOTERO_KEY: ${{ secrets.ZOTERO_KEY }}
+      OBSIDIAN_ENABLED: "false"
+      SCHEDULER_DESKTOP_NOTIFICATION_ENABLED: "false"
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Validate cloud configuration
+        run: npm run check:env
+
+      - name: Validate PostgreSQL schema
+        run: npm run prisma:cloud:validate
+
+      - name: Generate PostgreSQL Prisma Client
+        run: npm run prisma:cloud:generate
+
+      - name: Deploy PostgreSQL migrations
+        run: npm run prisma:cloud:migrate:deploy
+
+      - name: Run profile operation
+        env:
+          PROFILE_OPERATION: ${{ inputs.operation }}
+        run: npm run job:profile:cloud -- --operation "$PROFILE_OPERATION"

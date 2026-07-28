@@ -8,6 +8,17 @@ When credentials are available, dispatch the workflow twice with the same explic
 
 Cloud Mode runs the existing persisted daily CLI on a standard GitHub-hosted Node runner. It connects directly to the user's Neon PostgreSQL database; it does not call a Cloudflare or Next.js daily API.
 
+## Empty-database profile bootstrap
+
+The daily pipeline intentionally does not rebuild the low-frequency interest profile. For a new empty Neon database:
+
+1. Run **Cloud profile maintenance** with `operation=sync`. The first incremental request automatically performs the existing full Zotero sync because no successful library version exists.
+2. Deploy and sign in to the Access-protected Dashboard, open `/collections`, and mark at least one collection as `primary` or `secondary`. The root default remains `excluded`.
+3. Run **Cloud profile maintenance** again with `operation=refresh`.
+4. Run or rerun **Cloud daily recommendations**. A prior partial run resumes from its first incomplete stage under the same persisted `runId`.
+
+The profile workflow has no schedule and never calls the daily pipeline. Its logs contain only IDs and aggregate counts, not collection names, Zotero keys, credentials, or database URLs.
+
 ## 1. Create the PostgreSQL database
 
 Create an empty Neon PostgreSQL database. The first personal instance uses AWS Frankfurt (`eu-central-1`) because its primary use is in Europe. This region is not an application default: choose a Neon region near the instance owner (for example, Frankfurt for Europe or Singapore for East Asia).
