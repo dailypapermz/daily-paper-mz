@@ -192,6 +192,33 @@ describe("PrismaDailyIngestionRepository persistence contract", () => {
     })).resolves.toMatchObject({ pipelineStatus: "complete", attempt: 2 });
   });
 
+  it("claims a legacy successful aggregated run with no pipeline status", async () => {
+    const [client] = makeClients(1);
+    const input = runInput();
+    const legacy = await client.dailyIngestionRun.create({
+      data: {
+        requestKey: input.requestKey,
+        source: "AGGREGATED",
+        status: "SUCCESS",
+        pipelineStatus: null,
+        runDate: input.runDate,
+        finishedAt: new Date("2026-07-27T01:00:00.000Z")
+      }
+    });
+    const repository = new PrismaDailyIngestionRepository(client, {
+      now: () => new Date("2026-07-27T02:00:00.000Z")
+    });
+
+    await expect(repository.acquireRun(input)).resolves.toMatchObject({
+      disposition: "pipeline_acquired",
+      run: {
+        id: legacy.id,
+        attempt: 2,
+        pipelineStatus: "running"
+      }
+    });
+  });
+
   function makeClients(count: number) {
     const created = Array.from({ length: count }, () => new PrismaClient({ datasourceUrl: databaseUrl }));
     clients.push(...created);

@@ -124,7 +124,7 @@ function isRetryable(
   pipelineStaleAfterMs: number
 ): boolean {
   if (status === "running") {
-    const lastHeartbeat = row.pipelineStartedAt ?? row.startedAt;
+    const lastHeartbeat = row.pipelineStartedAt ?? row.updatedAt;
     return lastHeartbeat.getTime() <= now.getTime() - pipelineStaleAfterMs;
   }
   if (status !== "failed" && status !== "partial") return false;

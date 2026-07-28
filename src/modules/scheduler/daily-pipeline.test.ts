@@ -3,6 +3,7 @@ import { AppError } from "../../lib/errors";
 
 const mocks = vi.hoisted(() => ({
   runAggregatedIngestion: vi.fn(),
+  getRun: vi.fn(),
   setPipelineOutcome: vi.fn(),
   failRun: vi.fn(),
   enrichRun: vi.fn(),
@@ -21,6 +22,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("../ingestion", () => ({
   createDailyIngestionService: () => ({
     runAggregatedIngestion: mocks.runAggregatedIngestion,
+    getRun: mocks.getRun,
     setPipelineOutcome: mocks.setPipelineOutcome,
     failRun: mocks.failRun
   })
@@ -76,6 +78,7 @@ import { runDailyRecommendationPipeline } from "./daily-pipeline";
 describe("runDailyRecommendationPipeline", () => {
   beforeEach(() => {
     mocks.runAggregatedIngestion.mockReset();
+    mocks.getRun.mockReset();
     mocks.setPipelineOutcome.mockReset();
     mocks.failRun.mockReset();
     mocks.enrichRun.mockReset();
@@ -95,6 +98,7 @@ describe("runDailyRecommendationPipeline", () => {
     mocks.generateSummariesForRun.mockResolvedValue({ requested: 0, generated: 0, failed: 0 });
     mocks.runRecall.mockResolvedValue({ run: { id: "recall-1" } });
     mocks.runRerank.mockResolvedValue({ run: { id: "rerank-1" } });
+    mocks.getRun.mockResolvedValue(null);
     mocks.listStages.mockResolvedValue([
       { stage: "ingestion", status: "success" },
       { stage: "enrichment", status: "success" },
@@ -407,6 +411,50 @@ describe("runDailyRecommendationPipeline", () => {
     });
     expect(mocks.enrichRun).not.toHaveBeenCalled();
     expect(mocks.failStage).not.toHaveBeenCalled();
+  });
+
+  it("reports the winner's terminal status when a lost lease has already completed", async () => {
+    mocks.runAggregatedIngestion.mockResolvedValue({
+      run: { id: "run-1", attempt: 2 },
+      disposition: "pipeline_acquired",
+      sourceSummaries: [{ source: "pubmed", status: "success", candidatesCount: 10 }]
+    });
+    mocks.listStages
+      .mockResolvedValueOnce([
+        { stage: "ingestion", status: "success" },
+        { stage: "enrichment", status: "failed" },
+        { stage: "normalization", status: "skipped" },
+        { stage: "representation", status: "skipped" },
+        { stage: "recall", status: "skipped" },
+        { stage: "rerank", status: "skipped" },
+        { stage: "summary", status: "skipped" }
+      ])
+      .mockResolvedValueOnce([
+        { stage: "ingestion", status: "success" },
+        { stage: "enrichment", status: "success" },
+        { stage: "normalization", status: "success" },
+        { stage: "representation", status: "success" },
+        { stage: "recall", status: "success" },
+        { stage: "rerank", status: "success" },
+        { stage: "summary", status: "success" }
+      ]);
+    mocks.startStage.mockRejectedValueOnce(
+      new Error("Daily pipeline lease was lost before stage update")
+    );
+    mocks.getRun.mockResolvedValue({
+      id: "run-1",
+      attempt: 3,
+      pipelineStatus: "complete"
+    });
+
+    const result = await runDailyRecommendationPipeline({ sources: ["pubmed"] });
+
+    expect(result).toMatchObject({
+      runId: "run-1",
+      status: "complete",
+      disposition: "already_succeeded",
+      retryable: false
+    });
   });
 
   it("records a stage failure when starting that stage fails before its transition", async () => {

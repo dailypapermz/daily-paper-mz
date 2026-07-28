@@ -159,6 +159,7 @@ export interface DailyIngestionService {
   getRun(runId: string): Promise<DailyIngestionRunSummary | null>;
   setPipelineOutcome(input: {
     runId: string;
+    attempt: number;
     status: Exclude<DailyPipelineRunStatusValue, "running">;
   }): Promise<DailyIngestionRunSummary>;
 }

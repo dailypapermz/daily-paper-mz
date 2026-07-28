@@ -62,7 +62,7 @@ export class PrismaDailyIngestionRepository implements DailyIngestionRepository 
 
   private async resolveExistingRun(existing: Parameters<typeof mapRunSummary>[0]) {
     if (existing.status === "SUCCESS") {
-      if (existing.source === "AGGREGATED" && existing.pipelineStatus) {
+      if (existing.source === "AGGREGATED") {
         if (existing.pipelineStatus === "COMPLETE" || existing.pipelineStatus === "COMPLETE_WITH_WARNINGS") {
           return { run: mapRunSummary(existing), disposition: "already_succeeded" as const };
         }

@@ -236,17 +236,45 @@ export async function runDailyRecommendationPipeline(input?: {
       errorMessage
     });
     const errorRunId = activeRunId ?? extractRunId(error);
-    const alreadyRunningSummary = async () => ({
-      status: "running" as const,
-      disposition: "already_running" as const,
-      runId: errorRunId,
-      retryable: false,
-      startedAt: startedAt.toISOString(),
-      finishedAt: new Date().toISOString(),
-      runDate: input?.runDate,
-      sources: [],
-      stages: errorRunId ? await stageStatus.list(errorRunId) : []
-    });
+    const alreadyRunningSummary = async (): Promise<DailyPipelineRunSummary> => {
+      const stages = errorRunId ? await stageStatus.list(errorRunId) : [];
+      const currentRun = errorRunId ? await ingestion.getRun(errorRunId) : null;
+      const terminalStatus = asTerminalPipelineOutcome(currentRun?.pipelineStatus);
+      if (terminalStatus) {
+        const conclusion = concludeDailyPipeline(stages);
+        const sourceSummaries = sourceSummariesFromStages(stages) ?? [];
+        return {
+          status: terminalStatus,
+          disposition: terminalStatus === "complete" || terminalStatus === "complete_with_warnings"
+            ? "already_succeeded"
+            : "resumed",
+          runId: errorRunId,
+          failedStage: conclusion.failedStage,
+          retryable: conclusion.retryable,
+          startedAt: startedAt.toISOString(),
+          finishedAt: new Date().toISOString(),
+          runDate: input?.runDate,
+          sources: sourceSummaries.map((entry) => ({
+            source: entry.source,
+            ...(entry.status === "failed" ? {} : { runId: errorRunId }),
+            status: entry.status ?? "success",
+            ...(entry.errorMessage ? { errorMessage: entry.errorMessage } : {})
+          })),
+          stages
+        };
+      }
+      return {
+        status: "running",
+        disposition: "already_running",
+        runId: errorRunId,
+        retryable: false,
+        startedAt: startedAt.toISOString(),
+        finishedAt: new Date().toISOString(),
+        runDate: input?.runDate,
+        sources: [],
+        stages
+      };
+    };
     if (
       (error instanceof AppError && error.code === "DAILY_RUN_ALREADY_RUNNING") ||
       isPipelineLeaseLost(error)
