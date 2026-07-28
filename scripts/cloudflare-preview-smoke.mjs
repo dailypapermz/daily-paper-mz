@@ -6,47 +6,15 @@ const secretMarkers = ["postgresql://", "DATABASE_URL", "PrismaClient", " at "];
 await waitForLiveness();
 
 await expectJson("/api/health/live", { status: 200, code: undefined });
-await expectJson("/api/health/ready", { status: 503, code: "DATABASE_UNAVAILABLE" });
+await expectJson("/", { status: 403, code: "ACCESS_TOKEN_REQUIRED" });
+await expectJson("/api/health/ready", { status: 403, code: "ACCESS_TOKEN_REQUIRED" });
 await expectJson("/api/jobs/daily", {
   method: "POST",
-  status: 503,
-  code: "CAPABILITY_UNAVAILABLE_IN_CLOUD"
-});
-await expectJson("/api/feedback/actions", {
-  method: "POST",
-  headers: {
-    "content-type": "text/plain",
-    origin: baseUrl
-  },
-  body: "{}",
-  status: 415,
-  code: "UNSUPPORTED_MEDIA_TYPE"
-});
-await expectJson("/api/feedback/actions", {
-  method: "POST",
-  headers: {
-    "content-type": "application/json",
-    origin: "https://evil.example"
-  },
-  body: "{}",
   status: 403,
-  code: "ORIGIN_MISMATCH"
-});
-await expectJson("/api/feedback/actions", {
-  method: "POST",
-  headers: {
-    "content-type": "application/json",
-    origin: baseUrl
-  },
-  body: JSON.stringify({ padding: "x".repeat(70 * 1024) }),
-  status: 413,
-  code: "PAYLOAD_TOO_LARGE"
+  code: "ACCESS_TOKEN_REQUIRED"
 });
 
-const dashboard = await fetch(`${baseUrl}/`);
-assert.equal(dashboard.status, 200, "Worker preview dashboard must render");
-
-console.log(JSON.stringify({ status: "ok", runtime: "workerd", checks: 7 }));
+console.log(JSON.stringify({ status: "ok", runtime: "workerd", checks: 4 }));
 
 async function waitForLiveness() {
   let lastError;
@@ -73,6 +41,8 @@ async function expectJson(path, options) {
   assert.equal(response.status, options.status, `${path} returned ${response.status}: ${text}`);
   const payload = JSON.parse(text);
   if (options.code) assert.equal(payload.code, options.code);
+  if (!options.code) assert.equal(payload.status, "ok");
+  assert.equal(response.headers.get("cache-control"), "no-store");
   for (const marker of secretMarkers) {
     assert.equal(text.includes(marker), false, `${path} exposed forbidden marker ${marker}`);
   }

@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
@@ -21,6 +20,10 @@ const previewWorkflow = await readFile(
 );
 const previewSmoke = await readFile(
   new URL("./cloudflare-preview-smoke.mjs", import.meta.url),
+  "utf8"
+);
+const artifactContract = await readFile(
+  new URL("./cloudflare-artifact-contract.mjs", import.meta.url),
   "utf8"
 );
 
@@ -52,7 +55,7 @@ test("Wrangler targets a protected OpenNext Worker", () => {
 test("Worker build selects the OpenNext-patchable Neon client without replacing Node clients", () => {
   const workerGenerator = postgresSchema.match(/generator workerClient\s*\{([\s\S]*?)\}/)?.[1] ?? "";
   assert.doesNotMatch(workerGenerator, /output\s*=/);
-  assert.doesNotMatch(workerGenerator, /engineType\s*=/);
+  assert.match(workerGenerator, /engineType\s*=\s*["']client["']/);
   assert.match(nextConfig, /edge-application-client\.ts/);
   assert.match(nextConfig, /edge-application-json\.ts/);
   assert.match(nextConfig, /serverExternalPackages:\s*\["@prisma\/client",\s*"\.prisma\/client"\]/);
@@ -109,20 +112,6 @@ test("health and mutation boundaries are explicit", async () => {
   assert.doesNotMatch(boundary, /Access-Control-Allow-Origin/);
 });
 
-test("an existing OpenNext artifact contains no native Prisma engine", async (context) => {
-  const artifact = new URL("../.open-next/server-functions/default/", import.meta.url);
-  if (!existsSync(artifact)) {
-    context.skip("run npm run cf:build before bundle inspection");
-    return;
-  }
-  const { readdir } = await import("node:fs/promises");
-  const entries = await readdir(artifact, { recursive: true });
-  const nativeEngines = entries.filter((entry) =>
-    /(?:query_engine|libquery_engine).*(?:\.node|\.dll|\.so|\.dylib)$/i.test(entry)
-  );
-  assert.deepEqual(nativeEngines, []);
-});
-
 test("OpenNext uses the Cloudflare adapter without Pages", () => {
   assert.match(openNext, /defineCloudflareConfig/);
   assert.doesNotMatch(openNext + wrangler, /next-on-pages|Cloudflare Pages/i);
@@ -130,18 +119,38 @@ test("OpenNext uses the Cloudflare adapter without Pages", () => {
 
 test("Linux workerd preview is exercised without production secrets", () => {
   assert.match(previewWorkflow, /runs-on: ubuntu-latest/);
+  assert.match(previewWorkflow, /actions\/checkout@v7/);
+  assert.match(previewWorkflow, /actions\/setup-node@v7/);
+  assert.match(previewWorkflow, /actions\/upload-artifact@v7/);
   assert.match(previewWorkflow, /node-version: 22/);
-  assert.match(previewWorkflow, /npm run cf:build/);
+  assert.match(previewWorkflow, /env -u DATABASE_URL npm run cf:build/);
+  assert.match(previewWorkflow, /node scripts\/cloudflare-artifact-contract\.mjs/);
+  assert.ok(
+    previewWorkflow.indexOf("node scripts/cloudflare-artifact-contract.mjs") >
+      previewWorkflow.indexOf("env -u DATABASE_URL npm run cf:build"),
+    "bundle inspection must run after the OpenNext build"
+  );
+  assert.ok(
+    previewWorkflow.indexOf("wrangler dev --local") >
+      previewWorkflow.indexOf("node scripts/cloudflare-artifact-contract.mjs"),
+    "workerd must not start until the generated bundle passes inspection"
+  );
   assert.match(previewWorkflow, /wrangler dev --local --port 8787/);
-  assert.match(previewWorkflow, /ACCESS_JWT_LOCAL_PREVIEW_BYPASS:true/);
+  assert.match(previewWorkflow, /TEAM_DOMAIN:https:\/\/ci\.cloudflareaccess\.com/);
+  assert.match(previewWorkflow, /POLICY_AUD:ci-audience/);
+  assert.match(previewWorkflow, /ACCESS_ALLOWED_EMAIL:ci-user@example\.invalid/);
+  assert.doesNotMatch(previewWorkflow, /ACCESS_JWT_LOCAL_PREVIEW_BYPASS/);
   assert.match(previewWorkflow, /cloudflare-preview-smoke\.mjs/);
   assert.match(previewWorkflow, /cloudflare-worker-\$\{\{ github\.sha \}\}/);
   assert.match(previewWorkflow, /retention-days:\s*1/);
-  assert.doesNotMatch(previewWorkflow, /secrets\.|DATABASE_URL/);
-  assert.match(previewSmoke, /CAPABILITY_UNAVAILABLE_IN_CLOUD/);
-  assert.match(previewSmoke, /UNSUPPORTED_MEDIA_TYPE/);
-  assert.match(previewSmoke, /ORIGIN_MISMATCH/);
-  assert.match(previewSmoke, /PAYLOAD_TOO_LARGE/);
+  assert.doesNotMatch(previewWorkflow, /secrets\./);
+  assert.match(previewSmoke, /ACCESS_TOKEN_REQUIRED/);
+  assert.match(previewSmoke, /api\/health\/live/);
+  assert.match(previewSmoke, /cache-control/);
+  assert.match(artifactContract, /Missing \.open-next artifact/);
+  assert.match(artifactContract, /query_engine\|libquery_engine/);
+  assert.match(artifactContract, /PRIVATE KEY/);
+  assert.match(artifactContract, /credentialed PostgreSQL URL/);
 });
 
 test("Cloud dashboard and APIs validate Access JWTs in the Worker", async () => {

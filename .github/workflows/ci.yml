@@ -1,0 +1,145 @@
+name: Secret-free continuous integration
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: daily-paper-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Validate, test, and build from a clean checkout
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Verify pristine checkout
+        run: node scripts/ci-clean-checkout.mjs
+
+      - name: Install locked dependencies
+        run: npm ci --no-audit --fund=false
+
+      - name: Test configuration and workflow contracts
+        run: |
+          npm run test:config
+          node --test scripts/daily-workflow.test.mjs scripts/profile-workflow.test.mjs scripts/cloudflare-contract.test.mjs scripts/cloudflare-artifact-contract.test.mjs scripts/ci-migration-check.test.mjs scripts/ci-workflow-contract.test.mjs
+
+      - name: Validate Local Mode contracts
+        env:
+          DEPLOYMENT_MODE: local
+          DATABASE_URL: file:./ci-validation.db
+          ZOTERO_TRANSPORT: local
+          OBSIDIAN_ENABLED: "false"
+          SCHEDULER_DESKTOP_NOTIFICATION_ENABLED: "false"
+        run: |
+          npm run check:env
+          npm run prisma:local:validate
+
+      - name: Validate Cloud Mode contracts
+        env:
+          DEPLOYMENT_MODE: cloud
+          DATABASE_URL: postgresql://placeholder:placeholder@database.invalid/daily_paper
+          ZOTERO_TRANSPORT: web
+          ZOTERO_ID: placeholder-library
+          ZOTERO_KEY: placeholder-api-key
+          OBSIDIAN_ENABLED: "false"
+          SCHEDULER_DESKTOP_NOTIFICATION_ENABLED: "false"
+        run: |
+          npm run check:env
+          npm run prisma:cloud:validate
+
+      - name: Validate database contracts
+        env:
+          DEPLOYMENT_MODE: local
+          DATABASE_URL: file:./ci-validation.db
+          OBSIDIAN_ENABLED: "false"
+          SCHEDULER_DESKTOP_NOTIFICATION_ENABLED: "false"
+        run: npm run test:db-contract
+
+      - name: Type-check application
+        env:
+          DEPLOYMENT_MODE: local
+          DATABASE_URL: file:./ci-validation.db
+          OBSIDIAN_ENABLED: "false"
+          SCHEDULER_DESKTOP_NOTIFICATION_ENABLED: "false"
+        run: npm run typecheck
+
+      - name: Run application tests
+        env:
+          DEPLOYMENT_MODE: local
+          DATABASE_URL: file:./ci-validation.db
+          ZOTERO_TRANSPORT: local
+          OBSIDIAN_ENABLED: "false"
+          SCHEDULER_DESKTOP_NOTIFICATION_ENABLED: "false"
+        run: npm test
+
+      - name: Build production application artifact
+        env:
+          DEPLOYMENT_MODE: local
+          DATABASE_URL: file:./ci-validation.db
+          ZOTERO_TRANSPORT: local
+          OBSIDIAN_ENABLED: "false"
+          SCHEDULER_DESKTOP_NOTIFICATION_ENABLED: "false"
+        run: npm run build
+
+      - name: Verify commands preserve tracked checkout
+        run: node scripts/ci-clean-checkout.mjs
+
+  migration:
+    name: Validate PostgreSQL migrations on an ephemeral database
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: ci_user
+          POSTGRES_PASSWORD: ci_password
+          POSTGRES_DB: daily_paper_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ci_user -d daily_paper_ci"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci --no-audit --fund=false
+
+      - name: Deploy and compare migrations on the CI database
+        env:
+          TEST_POSTGRES_DATABASE_URL: postgresql://ci_user:ci_password@127.0.0.1:5432/daily_paper_ci
+        run: node scripts/ci-migration-check.mjs
+
+      - name: Verify commands preserve tracked checkout
+        run: node scripts/ci-clean-checkout.mjs
