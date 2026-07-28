@@ -2,7 +2,7 @@ import type { DailyPipelineRunSummary } from "../modules/scheduler/daily-pipelin
 
 export type DailyJobCliResult = Pick<
   DailyPipelineRunSummary,
-  "status" | "runId" | "failedStage" | "retryable"
+  "status" | "disposition" | "runId" | "failedStage" | "retryable"
 >;
 
 export type DailyJobCliDependencies = {
@@ -31,7 +31,8 @@ export function parseDailyJobArgs(args: string[]): { runDate?: string } {
 }
 
 export function dailyJobExitCode(result: DailyJobCliResult): 0 | 1 {
-  if (result.status === "complete" || result.status === "already_succeeded") return 0;
+  if (result.disposition === "already_running") return 1;
+  if (result.status === "complete" || result.status === "complete_with_warnings") return 0;
   if (result.status === "partial" && !result.retryable) return 0;
   return 1;
 }
@@ -45,12 +46,17 @@ export async function executeDailyJobCli(
     const pipeline = await dependencies.runPipeline(input);
     const result: DailyJobCliResult = {
       status: pipeline.status,
+      disposition: pipeline.disposition,
       runId: pipeline.runId,
       failedStage: pipeline.failedStage,
       retryable: pipeline.retryable
     };
     dependencies.writeResult(result);
-    if (dependencies.notify) {
+    if (
+      dependencies.notify &&
+      pipeline.disposition !== "already_succeeded" &&
+      pipeline.disposition !== "already_running"
+    ) {
       try {
         await dependencies.notify(pipeline);
       } catch {
@@ -59,7 +65,7 @@ export async function executeDailyJobCli(
     }
     return dailyJobExitCode(result);
   } catch {
-    dependencies.writeResult({ status: "failed", retryable: false });
+    dependencies.writeResult({ status: "failed", disposition: "executed", retryable: false });
     return 1;
   } finally {
     await dependencies.disconnect();

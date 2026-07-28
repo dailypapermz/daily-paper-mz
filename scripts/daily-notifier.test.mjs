@@ -96,3 +96,17 @@ test("reports failure after both optional channels fail", async () => {
   assert.equal(result.status, "failed");
   assert.deepEqual(result.attempts.map((attempt) => attempt.channel), ["wecom", "email"]);
 });
+
+test("renders complete-with-warnings distinctly from partial and failed", () => {
+  const warning = buildDailyNotification({
+    pipelinePayload: { status: "complete_with_warnings", result: { sources: [] } },
+    feed: { recommendations: [] }
+  });
+  const failed = buildDailyNotification({
+    pipelinePayload: { status: "failed", result: { sources: [] } },
+    feed: { recommendations: [] }
+  });
+  assert.match(warning.title, /有警告/);
+  assert.match(failed.title, /失败/);
+  assert.notEqual(warning.title, failed.title);
+});

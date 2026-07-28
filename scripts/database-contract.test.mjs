@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { resolve } from "node:path";
@@ -13,6 +14,10 @@ const cloudSchemaPath = resolve(projectDir, "prisma/postgresql/schema.prisma");
 const cloudMigrationPath = resolve(
   projectDir,
   "prisma/postgresql/migrations/20260726160000_postgresql_baseline/migration.sql"
+);
+const cloudOutcomeMigrationPath = resolve(
+  projectDir,
+  "prisma/postgresql/migrations/20260728170000_daily_pipeline_outcomes/migration.sql"
 );
 
 function definitionNames(schema) {
@@ -81,8 +86,11 @@ test("both Prisma schemas validate without connecting to a database", () => {
   ));
 });
 
-test("the committed PostgreSQL baseline is current and contains PostgreSQL primitives", async () => {
-  const migration = await readFile(cloudMigrationPath, "utf8");
+test("the immutable PostgreSQL baseline and incremental outcome migration match the current schema", async () => {
+  const [migration, outcomeMigration] = await Promise.all([
+    readFile(cloudMigrationPath, "utf8"),
+    readFile(cloudOutcomeMigrationPath, "utf8")
+  ]);
   const generated = runPrisma(
     ["migrate", "diff", "--from-empty", "--to-schema-datamodel", cloudSchemaPath, "--script"],
     "postgresql://placeholder:placeholder@127.0.0.1:5432/daily_paper"
@@ -92,5 +100,12 @@ test("the committed PostgreSQL baseline is current and contains PostgreSQL primi
   assert.match(migration, /CREATE TABLE "DailyIngestionRun"/);
   assert.match(migration, /JSONB/);
   assert.doesNotMatch(migration, /PRAGMA|AUTOINCREMENT/);
-  assert.equal(migration.replace(/\r\n/g, "\n").trim(), generated.replace(/\r\n/g, "\n").trim());
+  assert.equal(
+    createHash("sha256").update(migration).digest("hex"),
+    "2125e4593300cbdecb2ca5978a42a9a7c80d0ef5c387ff75de9c7b33891978f6"
+  );
+  assert.match(outcomeMigration, /CREATE TYPE "DailyPipelineRunStatus" AS ENUM/);
+  assert.match(outcomeMigration, /ADD COLUMN "pipelineStatus"/);
+  assert.match(generated, /CREATE TYPE "DailyPipelineRunStatus" AS ENUM/);
+  assert.match(generated, /"pipelineStatus" "DailyPipelineRunStatus"/);
 });

@@ -23,7 +23,7 @@ async function main() {
   });
 
   if (mode === "daily") {
-    await runDaily();
+    if (!(await runDaily())) process.exitCode = 1;
     return;
   }
   if (mode === "monthly") {
@@ -36,8 +36,7 @@ async function main() {
     const todayKey = now.toISOString().slice(0, 10);
 
     if (now.getUTCHours() === dailyHourUtc && lastDailyRunDate !== todayKey) {
-      await runDaily();
-      lastDailyRunDate = todayKey;
+      if (await runDaily()) lastDailyRunDate = todayKey;
     }
 
     const monthKey = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
@@ -59,11 +58,21 @@ async function runDaily() {
 
   try {
     const payload = await postJson(`${baseUrl}/api/jobs/daily`, {});
+    const result = payload?.result ?? payload;
+    if (
+      result?.disposition === "already_running" ||
+      result?.status === "failed" ||
+      (result?.status === "partial" && result?.retryable)
+    ) {
+      throw new Error(`Daily pipeline ended with ${result?.status ?? "unknown"}`);
+    }
     log("info", "Daily pipeline finished", payload);
+    return true;
   } catch (error) {
     log("error", "Daily pipeline failed", {
       error: error instanceof Error ? error.message : "Unknown scheduler daily failure"
     });
+    return false;
   }
 }
 

@@ -36,7 +36,7 @@ describe("PrismaDailyIngestionRepository persistence contract", () => {
     const [left, right] = makeRepositories();
     const input = runInput();
     const first = await left.acquireRun(input);
-    await left.markRunFailed({ runId: first.run.id, errorMessage: "fixture failure" });
+    await left.markRunFailed({ runId: first.run.id, attempt: first.run.attempt, errorMessage: "fixture failure" });
 
     const results = await Promise.all([left.acquireRun(input), right.acquireRun(input)]);
     const retry = results.find((result) => result.disposition === "retry");
@@ -74,6 +74,7 @@ describe("PrismaDailyIngestionRepository persistence contract", () => {
 
     const run = await repository.finalizeRunSuccess({
       runId: acquired.run.id,
+      attempt: acquired.run.attempt,
       entries: [{ source: "journal", candidate: candidate("journal-1") }],
       checkpoints: [{ source: "journal", successfulAt, seenExternalIds: ["journal-1", "journal-1"] }]
     });
@@ -91,6 +92,7 @@ describe("PrismaDailyIngestionRepository persistence contract", () => {
 
     await expect(repository.finalizeRunSuccess({
       runId: acquired.run.id,
+      attempt: acquired.run.attempt,
       entries: [
         { source: "arxiv", candidate: duplicate },
         { source: "arxiv", candidate: duplicate }
@@ -102,6 +104,35 @@ describe("PrismaDailyIngestionRepository persistence contract", () => {
     await expect(repository.listSeenExternalIds("arxiv", ["duplicate"])).resolves.toEqual(new Set());
     await expect(repository.getRun(acquired.run.id)).resolves.toMatchObject({ status: "running" });
     await expect(client.dailyCandidate.count({ where: { runId: acquired.run.id } })).resolves.toBe(0);
+  });
+
+  it("fences a former owner after a stale lease is reclaimed", async () => {
+    const [client] = makeClients(1);
+    const initial = new PrismaDailyIngestionRepository(client);
+    const input = runInput();
+    const first = await initial.acquireRun(input);
+    await client.dailyIngestionRun.update({
+      where: { id: first.run.id },
+      data: { startedAt: new Date("2026-07-27T02:00:00.000Z") }
+    });
+    const retrying = new PrismaDailyIngestionRepository(client, {
+      staleAfterMs: 180 * 60 * 1000,
+      now: () => new Date("2026-07-27T06:00:00.000Z")
+    });
+    const retry = await retrying.acquireRun(input);
+
+    await expect(initial.finalizeRunSuccess({
+      runId: first.run.id,
+      attempt: first.run.attempt,
+      entries: [],
+      checkpoints: []
+    })).rejects.toThrow(/lease was lost/i);
+    await expect(retrying.finalizeRunSuccess({
+      runId: retry.run.id,
+      attempt: retry.run.attempt,
+      entries: [],
+      checkpoints: []
+    })).resolves.toMatchObject({ status: "success", attempt: 2 });
   });
 
   function makeClients(count: number) {

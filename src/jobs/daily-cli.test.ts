@@ -21,12 +21,13 @@ describe("daily cloud CLI contract", () => {
   });
 
   it.each([
-    [{ status: "complete", retryable: false }, 0],
-    [{ status: "already_succeeded", retryable: false }, 0],
-    [{ status: "partial", retryable: false }, 0],
-    [{ status: "partial", retryable: true }, 1],
-    [{ status: "failed", retryable: true }, 1],
-    [{ status: "already_running", retryable: false }, 1]
+    [{ status: "complete", disposition: "executed", retryable: false }, 0],
+    [{ status: "complete_with_warnings", disposition: "executed", retryable: false }, 0],
+    [{ status: "complete", disposition: "already_succeeded", retryable: false }, 0],
+    [{ status: "partial", disposition: "executed", retryable: false }, 0],
+    [{ status: "partial", disposition: "resumed", retryable: true }, 1],
+    [{ status: "failed", disposition: "executed", retryable: true }, 1],
+    [{ status: "running", disposition: "already_running", retryable: false }, 1]
   ] as const)("maps %j to exit code %i", (result, exitCode) => {
     expect(dailyJobExitCode(result)).toBe(exitCode);
   });
@@ -37,6 +38,7 @@ describe("daily cloud CLI contract", () => {
     const exitCode = await executeDailyJobCli(["--run-date", "2026-07-27"], {
       runPipeline: vi.fn().mockResolvedValue({
         status: "complete",
+        disposition: "executed",
         runId: "run-1",
         retryable: false,
         startedAt: "",
@@ -51,6 +53,7 @@ describe("daily cloud CLI contract", () => {
     expect(exitCode).toBe(0);
     expect(writeResult).toHaveBeenCalledWith({
       status: "complete",
+      disposition: "executed",
       runId: "run-1",
       failedStage: undefined,
       retryable: false
@@ -63,6 +66,7 @@ describe("daily cloud CLI contract", () => {
     const writeResult = vi.fn();
     const pipeline = {
       status: "complete" as const,
+      disposition: "executed" as const,
       runId: "run-1",
       retryable: false,
       startedAt: "",
@@ -97,7 +101,32 @@ describe("daily cloud CLI contract", () => {
 
     expect(exitCode).toBe(1);
     expect(runPipeline).not.toHaveBeenCalled();
-    expect(writeResult).toHaveBeenCalledWith({ status: "failed", retryable: false });
+    expect(writeResult).toHaveBeenCalledWith({
+      status: "failed",
+      disposition: "executed",
+      retryable: false
+    });
     expect(disconnect).toHaveBeenCalledOnce();
+  });
+
+  it("suppresses notifications for reused and active runs", async () => {
+    const notify = vi.fn();
+    for (const disposition of ["already_succeeded", "already_running"] as const) {
+      await executeDailyJobCli([], {
+        runPipeline: vi.fn().mockResolvedValue({
+          status: disposition === "already_running" ? "running" : "complete",
+          disposition,
+          retryable: false,
+          startedAt: "",
+          finishedAt: "",
+          sources: [],
+          stages: []
+        }),
+        notify,
+        writeResult: vi.fn(),
+        disconnect: vi.fn().mockResolvedValue(undefined)
+      });
+    }
+    expect(notify).not.toHaveBeenCalled();
   });
 });

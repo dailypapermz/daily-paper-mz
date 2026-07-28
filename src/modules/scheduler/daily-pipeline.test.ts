@@ -3,6 +3,7 @@ import { AppError } from "../../lib/errors";
 
 const mocks = vi.hoisted(() => ({
   runAggregatedIngestion: vi.fn(),
+  setPipelineOutcome: vi.fn(),
   failRun: vi.fn(),
   enrichRun: vi.fn(),
   runForIngestionRun: vi.fn(),
@@ -20,6 +21,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("../ingestion", () => ({
   createDailyIngestionService: () => ({
     runAggregatedIngestion: mocks.runAggregatedIngestion,
+    setPipelineOutcome: mocks.setPipelineOutcome,
     failRun: mocks.failRun
   })
 }));
@@ -55,22 +57,26 @@ vi.mock("../ranking/rerank", () => ({
   })
 }));
 
-vi.mock("../pipeline-status", () => ({
-  STAGE_ORDER: ["ingestion", "enrichment", "normalization", "representation", "recall", "rerank", "summary"],
-  createPipelineStageService: () => ({
-    initialize: mocks.initializeStages,
-    start: mocks.startStage,
-    complete: mocks.completeStage,
-    fail: mocks.failStage,
-    list: mocks.listStages
-  })
-}));
+vi.mock("../pipeline-status", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../pipeline-status")>();
+  return {
+    ...actual,
+    createPipelineStageService: () => ({
+      initialize: mocks.initializeStages,
+      start: mocks.startStage,
+      complete: mocks.completeStage,
+      fail: mocks.failStage,
+      list: mocks.listStages
+    })
+  };
+});
 
 import { runDailyRecommendationPipeline } from "./daily-pipeline";
 
 describe("runDailyRecommendationPipeline", () => {
   beforeEach(() => {
     mocks.runAggregatedIngestion.mockReset();
+    mocks.setPipelineOutcome.mockReset();
     mocks.failRun.mockReset();
     mocks.enrichRun.mockReset();
     mocks.runForIngestionRun.mockReset();
@@ -98,6 +104,7 @@ describe("runDailyRecommendationPipeline", () => {
   it("runs aggregated ingestion and downstream stages once", async () => {
     mocks.runAggregatedIngestion.mockResolvedValue({
       run: { id: "run-1" },
+      disposition: "acquired",
       sourceSummaries: [{ source: "arxiv", candidatesCount: 2 }]
     });
 
@@ -137,12 +144,18 @@ describe("runDailyRecommendationPipeline", () => {
   });
 
   it("preserves per-source failures from partial aggregated ingestion", async () => {
-    mocks.listStages.mockResolvedValueOnce([
+    mocks.listStages.mockResolvedValue([
       { stage: "ingestion", status: "partial" },
+      { stage: "enrichment", status: "success" },
+      { stage: "normalization", status: "success" },
+      { stage: "representation", status: "success" },
+      { stage: "recall", status: "success" },
+      { stage: "rerank", status: "success" },
       { stage: "summary", status: "success" }
     ]);
     mocks.runAggregatedIngestion.mockResolvedValue({
       run: { id: "run-1" },
+      disposition: "acquired",
       sourceSummaries: [
         {
           source: "biorxiv",
@@ -172,10 +185,9 @@ describe("runDailyRecommendationPipeline", () => {
     ]);
     expect(mocks.enrichRun).toHaveBeenCalledWith("run-1");
     expect(mocks.runForIngestionRun).toHaveBeenCalledWith("run-1");
-    expect(result.status).toBe("partial");
-    expect(mocks.initializeStages).toHaveBeenCalledWith(
-      expect.objectContaining({ runId: "run-1", ingestionStatus: "partial" })
-    );
+    expect(result.status).toBe("complete_with_warnings");
+    expect(result.disposition).toBe("executed");
+    expect(mocks.initializeStages).not.toHaveBeenCalled();
   });
 
   it("reuses a completed persistent run without duplicating downstream stages", async () => {
@@ -197,7 +209,8 @@ describe("runDailyRecommendationPipeline", () => {
     const result = await runDailyRecommendationPipeline({ sources: ["pubmed"] });
 
     expect(result.sources[0]).toMatchObject({ source: "pubmed", runId: "run-existing", status: "success" });
-    expect(result.status).toBe("already_succeeded");
+    expect(result.status).toBe("complete");
+    expect(result.disposition).toBe("already_succeeded");
     expect(mocks.enrichRun).not.toHaveBeenCalled();
     expect(mocks.runForIngestionRun).not.toHaveBeenCalled();
     expect(mocks.runRecall).not.toHaveBeenCalled();
@@ -232,7 +245,8 @@ describe("runDailyRecommendationPipeline", () => {
 
     const result = await runDailyRecommendationPipeline({ sources: ["pubmed"] });
 
-    expect(result.status).toBe("partial");
+    expect(result.status).toBe("complete_with_warnings");
+    expect(result.disposition).toBe("resumed");
     expect(mocks.enrichRun).not.toHaveBeenCalled();
     expect(mocks.runForIngestionRun).not.toHaveBeenCalled();
     expect(mocks.generateLabelsForRun).toHaveBeenCalledWith({ runId: "run-existing" });
@@ -248,11 +262,30 @@ describe("runDailyRecommendationPipeline", () => {
       sourceSummaries: [{ source: "arxiv", status: "success", candidatesCount: 2 }]
     });
     mocks.enrichRun.mockRejectedValueOnce(new Error("enrichment failed"));
+    mocks.listStages
+      .mockResolvedValueOnce([
+        { stage: "ingestion", status: "success" },
+        { stage: "enrichment", status: "pending" },
+        { stage: "normalization", status: "pending" },
+        { stage: "representation", status: "pending" },
+        { stage: "recall", status: "pending" },
+        { stage: "rerank", status: "pending" },
+        { stage: "summary", status: "pending" }
+      ])
+      .mockResolvedValueOnce([
+        { stage: "ingestion", status: "success" },
+        { stage: "enrichment", status: "failed" },
+        { stage: "normalization", status: "skipped" },
+        { stage: "representation", status: "skipped" },
+        { stage: "recall", status: "skipped" },
+        { stage: "rerank", status: "skipped" },
+        { stage: "summary", status: "skipped" }
+      ]);
 
     const result = await runDailyRecommendationPipeline({ sources: ["arxiv"] });
 
     expect(mocks.failRun).not.toHaveBeenCalled();
-    expect(result.sources[0]).toMatchObject({ source: "arxiv", status: "failed" });
+    expect(result.sources[0]).toMatchObject({ source: "arxiv", status: "success" });
     expect(result).toMatchObject({ status: "failed", failedStage: "enrichment", retryable: true });
     expect(mocks.failStage).toHaveBeenCalledWith({
       runId: "run-1",
@@ -309,7 +342,12 @@ describe("runDailyRecommendationPipeline", () => {
 
     const result = await runDailyRecommendationPipeline({ sources: ["pubmed"] });
 
-    expect(result).toMatchObject({ status: "already_running", runId: "run-active", retryable: false });
+    expect(result).toMatchObject({
+      status: "running",
+      disposition: "already_running",
+      runId: "run-active",
+      retryable: false
+    });
     expect(mocks.failRun).not.toHaveBeenCalled();
   });
 });

@@ -59,7 +59,11 @@ describePostgresql("PostgreSQL persisted daily execution contract", () => {
     expect([left.disposition, right.disposition].sort()).toEqual(["acquired", "already_running"]);
     expect(left.run.id).toBe(right.run.id);
 
-    await repository.markRunFailed({ runId: left.run.id, errorMessage: "fixture failure" });
+    await repository.markRunFailed({
+      runId: left.run.id,
+      attempt: left.run.attempt,
+      errorMessage: "fixture failure"
+    });
     await expect(repository.acquireRun(input)).resolves.toMatchObject({
       disposition: "retry",
       run: { id: left.run.id, attempt: 2 }
@@ -73,6 +77,7 @@ describePostgresql("PostgreSQL persisted daily execution contract", () => {
 
     await expect(repository.finalizeRunSuccess({
       runId: acquired.run.id,
+      attempt: acquired.run.attempt,
       entries: [{ source: "journal", candidate: candidate(`journal-${randomUUID()}`) }],
       checkpoints: [{
         source: "journal",

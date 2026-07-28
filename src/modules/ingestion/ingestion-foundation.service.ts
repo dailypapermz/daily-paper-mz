@@ -45,6 +45,7 @@ export class DefaultDailyIngestionService implements DailyIngestionService {
       const candidates = fetched.candidates;
       const run = await this.repository.finalizeRunSuccess({
         runId: runRecord.id,
+        attempt: runRecord.attempt,
         entries: candidates.map((candidate) => ({
           source: input.source,
           candidate
@@ -64,7 +65,7 @@ export class DefaultDailyIngestionService implements DailyIngestionService {
         disposition: lease.disposition
       };
     } catch (error) {
-      await this.handleRunFailure(runRecord.id, error);
+      await this.handleRunFailure(runRecord.id, runRecord.attempt, error);
       throw withRunId(error, runRecord.id);
     }
   }
@@ -163,12 +164,19 @@ export class DefaultDailyIngestionService implements DailyIngestionService {
 
       const run = await this.repository.finalizeRunSuccess({
         runId: runRecord.id,
+        attempt: runRecord.attempt,
         entries,
         checkpoints: successfulFetches.map((fetched) => ({
           source: fetched.source,
           successfulAt: fetched.windowEnd,
           seenExternalIds: usesFirstSeenIds(fetched.source) ? fetched.fetchedExternalIds : undefined
-        }))
+        })),
+        pipelineInitialization: {
+          ingestionStatus: sourceSummaries.some((summary) => summary.status === "failed")
+            ? "partial"
+            : "success",
+          ingestionDetails: { sources: sourceSummaries }
+        }
       });
 
       const persistedCandidates = await this.repository.listCandidatesByRun(runRecord.id);
@@ -180,7 +188,7 @@ export class DefaultDailyIngestionService implements DailyIngestionService {
         disposition: lease.disposition
       };
     } catch (error) {
-      await this.handleRunFailure(runRecord.id, error);
+      await this.handleRunFailure(runRecord.id, runRecord.attempt, error);
       throw withRunId(error, runRecord.id);
     }
   }
@@ -191,6 +199,13 @@ export class DefaultDailyIngestionService implements DailyIngestionService {
 
   async getRun(runId: string) {
     return this.repository.getRun(runId);
+  }
+
+  async setPipelineOutcome(input: {
+    runId: string;
+    status: "complete" | "complete_with_warnings" | "partial" | "failed";
+  }) {
+    return this.repository.setPipelineOutcome(input);
   }
 
   private getAdapterOrThrow(source: DailyCandidateSourceValue) {
@@ -244,7 +259,7 @@ export class DefaultDailyIngestionService implements DailyIngestionService {
     return makeFetchResult(candidates, uniqueFetched, windowStart, windowEnd, "watermark");
   }
 
-  private async handleRunFailure(runId: string, error: unknown) {
+  private async handleRunFailure(runId: string, attempt: number, error: unknown) {
     const appError =
       error instanceof AppError
         ? error
@@ -255,6 +270,7 @@ export class DefaultDailyIngestionService implements DailyIngestionService {
 
     await this.repository.markRunFailed({
       runId,
+      attempt,
       errorMessage: appError.message
     });
   }

@@ -1,6 +1,12 @@
 export type DailyCandidateSourceValue = "biorxiv" | "arxiv" | "pubmed" | "journal";
 export type DailyIngestionRunSourceValue = DailyCandidateSourceValue | "aggregated";
 export type DailyIngestionRunStatusValue = "running" | "success" | "failed";
+export type DailyPipelineRunStatusValue =
+  | "running"
+  | "complete"
+  | "complete_with_warnings"
+  | "partial"
+  | "failed";
 export type DailyRunDisposition =
   | "acquired"
   | "retry"
@@ -48,9 +54,11 @@ export type DailyIngestionRunSummary = {
   attempt: number;
   source: DailyIngestionRunSourceValue;
   status: DailyIngestionRunStatusValue;
+  pipelineStatus?: DailyPipelineRunStatusValue;
   runDate: string;
   startedAt: string;
   finishedAt?: string;
+  pipelineFinishedAt?: string;
   candidatesCount: number;
   errorMessage?: string;
 };
@@ -99,6 +107,7 @@ export interface DailyIngestionRepository {
   }): Promise<{ run: DailyIngestionRunSummary; disposition: DailyRunDisposition }>;
   finalizeRunSuccess(input: {
     runId: string;
+    attempt: number;
     entries: Array<{
       source: DailyCandidateSourceValue;
       candidate: DailySourceAdapterCandidate;
@@ -108,8 +117,16 @@ export interface DailyIngestionRepository {
       successfulAt: Date;
       seenExternalIds?: string[];
     }>;
+    pipelineInitialization?: {
+      ingestionStatus: "success" | "partial";
+      ingestionDetails: Record<string, unknown>;
+    };
   }): Promise<DailyIngestionRunSummary>;
-  markRunFailed(input: { runId: string; errorMessage: string }): Promise<DailyIngestionRunSummary>;
+  markRunFailed(input: { runId: string; attempt: number; errorMessage: string }): Promise<DailyIngestionRunSummary>;
+  setPipelineOutcome(input: {
+    runId: string;
+    status: Exclude<DailyPipelineRunStatusValue, "running">;
+  }): Promise<DailyIngestionRunSummary>;
   getLatestRun(input?: { source?: DailyIngestionRunSourceValue }): Promise<DailyIngestionRunSummary | null>;
   getRun(runId: string): Promise<DailyIngestionRunSummary | null>;
   listCandidatesByRun(runId: string): Promise<DailyCandidateRecord[]>;
@@ -137,4 +154,8 @@ export interface DailyIngestionService {
   }>;
   getLatestRun(input?: { source?: DailyIngestionRunSourceValue }): Promise<DailyIngestionRunSummary | null>;
   getRun(runId: string): Promise<DailyIngestionRunSummary | null>;
+  setPipelineOutcome(input: {
+    runId: string;
+    status: Exclude<DailyPipelineRunStatusValue, "running">;
+  }): Promise<DailyIngestionRunSummary>;
 }
