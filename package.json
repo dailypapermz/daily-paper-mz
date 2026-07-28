@@ -9,7 +9,7 @@
     "typecheck": "tsc --noEmit",
     "test": "node --test scripts/daily-notifier.test.mjs scripts/daily-workflow.test.mjs scripts/profile-workflow.test.mjs && vitest run --pool=threads",
     "test:notification": "node --test scripts/daily-notifier.test.mjs",
-    "test:workflow": "node --test scripts/daily-workflow.test.mjs",
+    "test:workflow": "node --test scripts/daily-workflow.test.mjs scripts/profile-workflow.test.mjs scripts/ci-workflow-contract.test.mjs scripts/ci-migration-check.test.mjs",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "check:env": "node scripts/check-env.mjs",
@@ -39,7 +39,7 @@
     "cf:preview": "npm run cf:build && node scripts/run-opennext.mjs preview",
     "cf:deploy": "npm run cf:build && node scripts/run-opennext.mjs deploy -- --keep-vars",
     "cf:typegen": "node scripts/run-cloudflare-typegen.mjs",
-    "test:cloudflare": "node --test scripts/cloudflare-contract.test.mjs",
+    "test:cloudflare": "node --test scripts/cloudflare-contract.test.mjs scripts/cloudflare-artifact-contract.test.mjs && node scripts/cloudflare-artifact-contract.mjs",
     "pretest": "npm run prisma:generate:all"
   },
   "dependencies": {

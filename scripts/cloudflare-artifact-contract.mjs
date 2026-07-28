@@ -39,7 +39,7 @@ export async function validateOpenNextArtifact(root) {
     if (/-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/.test(content)) {
       throw new Error(`Worker artifact contains a private key marker in ${relative(root, file)}.`);
     }
-    if (/postgres(?:ql)?:\/\/[^\s"']+:[^@\s"']+@/i.test(content)) {
+    if (containsCredentialedPostgresUrl(content)) {
       throw new Error(`Worker artifact contains an embedded credentialed PostgreSQL URL in ${relative(root, file)}.`);
     }
     if (/qyapi\.weixin\.qq\.com\/cgi-bin\/webhook\/send\?key=/i.test(content)) {
@@ -48,6 +48,24 @@ export async function validateOpenNextArtifact(root) {
   }
 
   console.log(JSON.stringify({ status: "ok", artifact: ".open-next", files: entries.length }));
+}
+
+function containsCredentialedPostgresUrl(content) {
+  const candidates = content.match(/postgres(?:ql)?:\/\/[^\s"'`<>\\]+/gi) ?? [];
+  return candidates.some((candidate) => {
+    if (candidate.includes("${")) return false;
+    try {
+      const parsed = new URL(candidate);
+      const isPrismaDocumentationPlaceholder =
+        parsed.hostname === "host.tld" &&
+        decodeURIComponent(parsed.username) === "user" &&
+        decodeURIComponent(parsed.password) === "password";
+      if (isPrismaDocumentationPlaceholder) return false;
+      return parsed.username.length > 0 || parsed.password.length > 0;
+    } catch {
+      return false;
+    }
+  });
 }
 
 async function listFiles(root) {
