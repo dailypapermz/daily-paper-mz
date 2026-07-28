@@ -163,34 +163,52 @@ export class PrismaZoteroSyncRepository implements ZoteroSyncRepository {
       collections.map((collection) => [collection.zoteroCollectionKey, collection.id])
     );
 
+    const resolvedMappings = mappingByItem.flatMap((entry) => {
+      const itemId = itemIdByKey.get(entry.zoteroItemKey);
+      if (!itemId) {
+        return [];
+      }
+
+      return [
+        {
+          itemId,
+          rows: entry.zoteroCollectionKeys
+            .map((collectionKey) => collectionIdByKey.get(collectionKey))
+            .filter((value): value is string => Boolean(value))
+            .map((collectionId) => ({ itemId, collectionId }))
+        }
+      ];
+    });
+
     let total = 0;
 
-    await this.db.$transaction(async (tx) => {
-      for (const entry of mappingByItem) {
-        const itemId = itemIdByKey.get(entry.zoteroItemKey);
-        if (!itemId) {
-          continue;
-        }
+    for (let offset = 0; offset < resolvedMappings.length; offset += MAPPING_BATCH_SIZE) {
+      const batch = resolvedMappings.slice(offset, offset + MAPPING_BATCH_SIZE);
+      const itemIds = batch.map((entry) => entry.itemId);
+      const rows = batch.flatMap((entry) => entry.rows);
+      const operations = [
+        this.db.zoteroItemCollection.deleteMany({
+          where: { itemId: { in: itemIds } }
+        })
+      ];
 
-        await tx.zoteroItemCollection.deleteMany({ where: { itemId } });
-
-        const rows = entry.zoteroCollectionKeys
-          .map((collectionKey) => collectionIdByKey.get(collectionKey))
-          .filter((value): value is string => Boolean(value))
-          .map((collectionId) => ({ itemId, collectionId }));
-
-        if (rows.length > 0) {
-          await tx.zoteroItemCollection.createMany({
+      if (rows.length > 0) {
+        operations.push(
+          this.db.zoteroItemCollection.createMany({
             data: rows
-          });
-          total += rows.length;
-        }
+          })
+        );
       }
-    });
+
+      await this.db.$transaction(operations);
+      total += rows.length;
+    }
 
     return total;
   }
 }
+
+const MAPPING_BATCH_SIZE = 200;
 
 function toDbMode(mode: "full" | "incremental"): ZoteroSyncMode {
   return mode === "full" ? "FULL" : "INCREMENTAL";
