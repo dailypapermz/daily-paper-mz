@@ -345,6 +345,53 @@ describe("runDailyRecommendationPipeline", () => {
     });
   });
 
+  it("resumes a failed normalization for the same run without rerunning ingestion or enrichment", async () => {
+    mocks.runAggregatedIngestion.mockResolvedValue({
+      run: { id: "run-normalization-retry", attempt: 2 },
+      disposition: "pipeline_acquired",
+      sourceSummaries: [{ source: "pubmed", status: "success", candidatesCount: 1_000 }]
+    });
+    mocks.listStages
+      .mockResolvedValueOnce([
+        { stage: "ingestion", status: "success" },
+        { stage: "enrichment", status: "partial" },
+        { stage: "normalization", status: "failed" },
+        { stage: "representation", status: "skipped" },
+        { stage: "recall", status: "skipped" },
+        { stage: "rerank", status: "skipped" },
+        { stage: "summary", status: "skipped" }
+      ])
+      .mockResolvedValueOnce([
+        { stage: "ingestion", status: "success" },
+        { stage: "enrichment", status: "partial" },
+        { stage: "normalization", status: "success" },
+        { stage: "representation", status: "success" },
+        { stage: "recall", status: "success" },
+        { stage: "rerank", status: "success" },
+        { stage: "summary", status: "success" }
+      ]);
+
+    const result = await runDailyRecommendationPipeline({ sources: ["pubmed"] });
+
+    expect(result).toMatchObject({
+      runId: "run-normalization-retry",
+      status: "complete_with_warnings",
+      disposition: "resumed",
+      retryable: false
+    });
+    expect(mocks.enrichRun).not.toHaveBeenCalled();
+    expect(mocks.runForIngestionRun).toHaveBeenCalledTimes(1);
+    expect(mocks.runForIngestionRun).toHaveBeenCalledWith("run-normalization-retry");
+    expect(mocks.generateLabelsForRun).toHaveBeenCalledWith({ runId: "run-normalization-retry" });
+    expect(mocks.runRecall).toHaveBeenCalledWith({ runId: "run-normalization-retry" });
+    expect(mocks.runRerank).toHaveBeenCalledWith({ runId: "run-normalization-retry", topN: 20 });
+    expect(mocks.generateSummariesForRun).toHaveBeenCalledWith({
+      runId: "run-normalization-retry",
+      limit: 20,
+      selectedOnly: true
+    });
+  });
+
   it("returns already-running without presenting the trigger as retryable", async () => {
     mocks.runAggregatedIngestion.mockRejectedValue(
       new AppError("DAILY_RUN_ALREADY_RUNNING", "run active", 409, { runId: "run-active" })
