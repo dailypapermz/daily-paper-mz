@@ -8,6 +8,8 @@ import type {
 } from "../../modules/ranking/rerank/types";
 import type { ResearchTypeCategoryValue } from "../../modules/tagging/types";
 
+const BATCH_SIZE = 500;
+
 export class PrismaRerankRepository implements RerankRepository {
   constructor(private readonly db: PrismaClient) {}
 
@@ -166,6 +168,27 @@ export class PrismaRerankRepository implements RerankRepository {
   }
 
   async saveRerankResults(input: { rerankRunId: string; results: RerankResultRecord[] }) {
+    const rows: Prisma.DailyRecommendationResultCreateManyInput[] = input.results.map((result) => ({
+      rerankRunId: input.rerankRunId,
+      canonicalCandidateId: result.candidateId,
+      rank: result.rank,
+      selected: result.selected,
+      finalScore: result.scores.finalScore,
+      recallScore: result.scores.recallScore,
+      recentCoreScore: result.scores.recentCoreScore,
+      stableLongTermScore: result.scores.stableLongTermScore,
+      highAttentionScore: result.scores.highAttentionScore,
+      contentTagScore: result.scores.contentTagScore,
+      researchTypeScore: result.scores.researchTypeScore,
+      collectionWeightScore: result.scores.collectionWeightScore,
+      sourcePriorityScore: result.scores.sourcePriorityScore,
+      journalQualityScore: result.scores.journalQualityScore,
+      userCorrectedScore: result.scores.userCorrectedScore,
+      recencyScore: result.scores.recencyScore,
+      reasonsJson: result.scores.reasons as unknown as Prisma.InputJsonValue,
+      featureWeightsJson: result.scores.featureWeights as unknown as Prisma.InputJsonValue
+    }));
+
     await this.db.$transaction(async (tx) => {
       await tx.dailyRecommendationResult.deleteMany({
         where: {
@@ -173,28 +196,9 @@ export class PrismaRerankRepository implements RerankRepository {
         }
       });
 
-      for (const result of input.results) {
-        await tx.dailyRecommendationResult.create({
-          data: {
-            rerankRunId: input.rerankRunId,
-            canonicalCandidateId: result.candidateId,
-            rank: result.rank,
-            selected: result.selected,
-            finalScore: result.scores.finalScore,
-            recallScore: result.scores.recallScore,
-            recentCoreScore: result.scores.recentCoreScore,
-            stableLongTermScore: result.scores.stableLongTermScore,
-            highAttentionScore: result.scores.highAttentionScore,
-            contentTagScore: result.scores.contentTagScore,
-            researchTypeScore: result.scores.researchTypeScore,
-            collectionWeightScore: result.scores.collectionWeightScore,
-            sourcePriorityScore: result.scores.sourcePriorityScore,
-            journalQualityScore: result.scores.journalQualityScore,
-            userCorrectedScore: result.scores.userCorrectedScore,
-            recencyScore: result.scores.recencyScore,
-            reasonsJson: result.scores.reasons as unknown as Prisma.InputJsonValue,
-            featureWeightsJson: result.scores.featureWeights as unknown as Prisma.InputJsonValue
-          }
+      for (let offset = 0; offset < rows.length; offset += BATCH_SIZE) {
+        await tx.dailyRecommendationResult.createMany({
+          data: rows.slice(offset, offset + BATCH_SIZE)
         });
       }
     }, { timeout: 60_000 });

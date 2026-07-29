@@ -8,6 +8,8 @@ import type {
 } from "../../modules/ranking/recall/types";
 import type { ResearchTypeCategoryValue } from "../../modules/tagging/types";
 
+const BATCH_SIZE = 500;
+
 export class PrismaRecallRankingRepository implements RecallRankingRepository {
   constructor(private readonly db: PrismaClient) {}
 
@@ -105,6 +107,19 @@ export class PrismaRecallRankingRepository implements RecallRankingRepository {
       return;
     }
 
+    const rows: Prisma.DailyRecallResultCreateManyInput[] = input.results.map((result) => ({
+      recallRunId: input.recallRunId,
+      canonicalCandidateId: result.candidateId,
+      rank: result.rank,
+      selected: result.selected,
+      recallScore: result.scores.recallScore,
+      semanticScore: result.scores.semanticScore,
+      tagOverlapScore: result.scores.tagOverlapScore,
+      researchTypeScore: result.scores.researchTypeScore,
+      sourceScopeScore: result.scores.sourceScopeScore,
+      reasonsJson: result.scores.reasons as unknown as Prisma.InputJsonValue
+    }));
+
     await this.db.$transaction(async (tx) => {
       await tx.dailyRecallResult.deleteMany({
         where: {
@@ -112,20 +127,9 @@ export class PrismaRecallRankingRepository implements RecallRankingRepository {
         }
       });
 
-      for (const result of input.results) {
-        await tx.dailyRecallResult.create({
-          data: {
-            recallRunId: input.recallRunId,
-            canonicalCandidateId: result.candidateId,
-            rank: result.rank,
-            selected: result.selected,
-            recallScore: result.scores.recallScore,
-            semanticScore: result.scores.semanticScore,
-            tagOverlapScore: result.scores.tagOverlapScore,
-            researchTypeScore: result.scores.researchTypeScore,
-            sourceScopeScore: result.scores.sourceScopeScore,
-            reasonsJson: result.scores.reasons as unknown as Prisma.InputJsonValue
-          }
+      for (let offset = 0; offset < rows.length; offset += BATCH_SIZE) {
+        await tx.dailyRecallResult.createMany({
+          data: rows.slice(offset, offset + BATCH_SIZE)
         });
       }
     }, { timeout: 60_000 });
