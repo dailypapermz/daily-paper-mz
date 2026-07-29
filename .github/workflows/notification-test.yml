@@ -1,0 +1,94 @@
+name: Daily Paper SMTP notification test
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: daily-paper-smtp-test-${{ github.repository }}-production
+  cancel-in-progress: false
+
+jobs:
+  notify:
+    name: Send isolated SMTP test message
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 10
+    env:
+      NOTIFICATION_SMTP_HOST: ${{ secrets.NOTIFICATION_SMTP_HOST }}
+      NOTIFICATION_SMTP_PORT: ${{ secrets.NOTIFICATION_SMTP_PORT }}
+      NOTIFICATION_SMTP_SECURE: ${{ secrets.NOTIFICATION_SMTP_SECURE }}
+      NOTIFICATION_SMTP_USER: ${{ secrets.NOTIFICATION_SMTP_USER }}
+      NOTIFICATION_SMTP_PASS: ${{ secrets.NOTIFICATION_SMTP_PASS }}
+      NOTIFICATION_EMAIL_FROM: ${{ secrets.NOTIFICATION_SMTP_FROM }}
+      NOTIFICATION_EMAIL_TO: ${{ secrets.NOTIFICATION_SMTP_TO }}
+      NOTIFICATION_DASHBOARD_URL: ${{ vars.NOTIFICATION_DASHBOARD_URL }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Send Daily Paper notification test
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import { sendDailyNotification } from "./scripts/daily-notifier.mjs";
+
+          const notification = {
+            title: "Daily Paper notification test",
+            status: "notification_test",
+            recommendationCount: 0,
+            sourceCounts: {},
+            failedSources: [],
+            papers: [],
+            topPapers: [],
+            dashboardUrl: process.env.NOTIFICATION_DASHBOARD_URL
+          };
+          const smtpEnv = {
+            NOTIFICATION_SMTP_HOST: process.env.NOTIFICATION_SMTP_HOST,
+            NOTIFICATION_SMTP_PORT: process.env.NOTIFICATION_SMTP_PORT,
+            NOTIFICATION_SMTP_SECURE: process.env.NOTIFICATION_SMTP_SECURE,
+            NOTIFICATION_SMTP_USER: process.env.NOTIFICATION_SMTP_USER,
+            NOTIFICATION_SMTP_PASS: process.env.NOTIFICATION_SMTP_PASS,
+            NOTIFICATION_EMAIL_FROM: process.env.NOTIFICATION_EMAIL_FROM,
+            NOTIFICATION_EMAIL_TO: process.env.NOTIFICATION_EMAIL_TO
+          };
+
+          let delivery;
+          try {
+            delivery = await sendDailyNotification({ notification, env: smtpEnv });
+          } catch {
+            console.error(JSON.stringify({
+              status: "failed",
+              errorCategory: "notification_test_internal"
+            }));
+            process.exit(1);
+          }
+
+          if (delivery.status === "sent" && delivery.channel === "email") {
+            console.log(JSON.stringify({
+              status: "sent",
+              channel: "email",
+              message: "Daily Paper notification test"
+            }));
+          } else {
+            const errorCategory = delivery.status === "skipped"
+              ? "configuration_incomplete"
+              : "smtp_delivery_failed";
+            console.error(JSON.stringify({ status: "failed", errorCategory }));
+            process.exit(1);
+          }
+          NODE
