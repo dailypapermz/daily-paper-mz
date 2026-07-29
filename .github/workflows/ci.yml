@@ -144,5 +144,13 @@ jobs:
           TEST_POSTGRES_DATABASE_URL: postgresql://ci_user:ci_password@127.0.0.1:5432/daily_paper_ci
         run: node scripts/ci-migration-check.mjs
 
+      - name: Generate Prisma clients for PostgreSQL integration tests
+        run: npm run prisma:generate:all
+
+      - name: Test normalization batching on PostgreSQL
+        env:
+          TEST_POSTGRES_DATABASE_URL: postgresql://ci_user:ci_password@127.0.0.1:5432/daily_paper_ci
+        run: npx vitest run src/db/repositories/candidate-normalization-postgresql.integration.test.ts --pool=threads
+
       - name: Verify commands preserve tracked checkout
         run: node scripts/ci-clean-checkout.mjs
