@@ -1,4 +1,4 @@
-export function buildDailyNotification({ pipelinePayload, feed, dashboardUrl }) {
+export function buildDailyNotification({ pipelinePayload, feed, dashboardUrl, businessDate }) {
   const recommendations = Array.isArray(feed?.recommendations) ? feed.recommendations : [];
   const sourceCounts = {};
 
@@ -12,6 +12,9 @@ export function buildDailyNotification({ pipelinePayload, feed, dashboardUrl }) 
     .filter((source) => source.status === "failed")
     .map((source) => source.source);
   const status = pipelinePayload?.status ?? pipelinePayload?.result?.status ?? "unknown";
+  const runId = pipelinePayload?.result?.runId;
+  const resolvedBusinessDate = businessDate ?? pipelinePayload?.result?.runDate ?? "unknown";
+  const warningSummary = buildWarningSummary(status, failedSources);
   const papers = recommendations
     .filter((recommendation) => recommendation.title)
     .map((recommendation) => ({
@@ -22,10 +25,12 @@ export function buildDailyNotification({ pipelinePayload, feed, dashboardUrl }) 
   return {
     title: notificationTitle(status),
     status,
-    runId: pipelinePayload?.result?.runId,
+    runId,
+    businessDate: resolvedBusinessDate,
     recommendationCount: recommendations.length,
     sourceCounts,
     failedSources,
+    warningSummary,
     papers,
     topPapers: papers.slice(0, 5),
     dashboardUrl
@@ -37,6 +42,12 @@ function notificationTitle(status) {
   if (status === "complete_with_warnings") return "每日文献推荐已完成（有警告）";
   if (status === "failed") return "每日文献推荐失败";
   return "每日文献推荐部分完成";
+}
+
+function buildWarningSummary(status, failedSources) {
+  if (failedSources.length > 0) return `失败来源：${failedSources.join(", ")}`;
+  if (status === "complete_with_warnings") return "本次运行完成，但包含来源或阶段警告";
+  return "无";
 }
 
 export async function sendDailyNotification({
@@ -143,9 +154,12 @@ function readEmailConfig(env) {
 function toWecomMarkdown(notification) {
   const lines = [
     `### ${notification.title}`,
+    `> 业务日期：${notification.businessDate}`,
+    `> Run ID：${notification.runId ?? "unknown"}`,
+    `> 运行状态：${notification.status}`,
     `> 推荐数量：<font color="info">${notification.recommendationCount}</font>`,
     `> 来源：${formatSourceCounts(notification.sourceCounts)}`,
-    `> 状态：${notification.status}`
+    `> 警告摘要：${notification.warningSummary}`
   ];
   if (notification.failedSources.length > 0) {
     lines.push(`> 失败来源：<font color="warning">${notification.failedSources.join(", ")}</font>`);
@@ -168,10 +182,12 @@ function toWecomMarkdown(notification) {
 function toPlainText(notification) {
   return [
     notification.title,
+    `业务日期：${notification.businessDate}`,
+    `Run ID：${notification.runId ?? "unknown"}`,
+    `运行状态：${notification.status}`,
     `推荐数量：${notification.recommendationCount}`,
+    `警告摘要：${notification.warningSummary}`,
     `来源：${formatSourceCounts(notification.sourceCounts)}`,
-    `状态：${notification.status}`,
-    notification.failedSources.length > 0 ? `失败来源：${notification.failedSources.join(", ")}` : "",
     "",
     ...notification.papers.flatMap((paper, index) => [
       `${index + 1}. ${paper.title}`,
@@ -197,9 +213,12 @@ function toHtml(notification) {
 
   return [
     `<h2>${escapeHtml(notification.title)}</h2>`,
+    `<p><strong>业务日期：</strong>${escapeHtml(notification.businessDate)}</p>`,
+    `<p><strong>Run ID：</strong>${escapeHtml(notification.runId ?? "unknown")}</p>`,
+    `<p><strong>运行状态：</strong>${escapeHtml(notification.status)}</p>`,
     `<p><strong>推荐数量：</strong>${notification.recommendationCount}</p>`,
+    `<p><strong>警告摘要：</strong>${escapeHtml(notification.warningSummary)}</p>`,
     `<p><strong>来源：</strong>${escapeHtml(formatSourceCounts(notification.sourceCounts))}</p>`,
-    `<p><strong>状态：</strong>${escapeHtml(notification.status)}</p>`,
     failedSources,
     paperLinks ? `<h3>推荐列表</h3><ol>${paperLinks}</ol>` : "",
     isPublicDashboardUrl(notification.dashboardUrl)

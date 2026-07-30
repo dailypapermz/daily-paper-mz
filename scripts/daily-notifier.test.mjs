@@ -25,7 +25,8 @@ const notification = buildDailyNotification({
       { title: "Regulatory genomics", sources: ["journal"] }
     ]
   },
-  dashboardUrl: "http://localhost:3000"
+  dashboardUrl: "https://daily-paper.example.test/",
+  businessDate: "2026-07-30"
 });
 
 test("sends a WeCom notification when its webhook succeeds", async () => {
@@ -70,6 +71,14 @@ test("falls back to SMTP email when WeCom fails", async () => {
   assert.equal(result.channel, "email");
   assert.equal(result.fallbackFrom, "wecom");
   assert.equal(sentMail.to, "to@example.test");
+  assert.match(sentMail.text, /业务日期：2026-07-30/);
+  assert.match(sentMail.text, /Run ID：run-1/);
+  assert.match(sentMail.text, /运行状态：partial/);
+  assert.match(sentMail.text, /推荐数量：2/);
+  assert.match(sentMail.text, /警告摘要：失败来源：arxiv/);
+  assert.match(sentMail.text, /https:\/\/daily-paper\.example\.test\//);
+  assert.match(sentMail.html, /业务日期/);
+  assert.match(sentMail.html, /run-1/);
   assert.match(sentMail.text, /arxiv/);
   assert.match(sentMail.html, /https:\/\/doi\.org\/10\.1101\/2026\.01\.01\.123456/);
   assert.doesNotMatch(sentMail.html, /localhost/);
@@ -108,6 +117,7 @@ test("renders complete-with-warnings distinctly from partial and failed", () => 
     feed: { recommendations: [] }
   });
   assert.match(warning.title, /有警告/);
+  assert.equal(warning.warningSummary, "本次运行完成，但包含来源或阶段警告");
   assert.match(failed.title, /失败/);
   assert.notEqual(warning.title, failed.title);
 });

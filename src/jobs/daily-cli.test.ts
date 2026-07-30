@@ -64,6 +64,7 @@ describe("daily cloud CLI contract", () => {
   it("keeps the persisted pipeline exit code when optional notification fails", async () => {
     const warn = vi.fn();
     const writeResult = vi.fn();
+    const writeNotificationResult = vi.fn();
     const pipeline = {
       status: "complete" as const,
       disposition: "executed" as const,
@@ -78,6 +79,7 @@ describe("daily cloud CLI contract", () => {
     const exitCode = await executeDailyJobCli([], {
       runPipeline: vi.fn().mockResolvedValue(pipeline),
       notify: vi.fn().mockRejectedValue(new Error("provider output containing a secret")),
+      writeNotificationResult,
       warn,
       writeResult,
       disconnect: vi.fn().mockResolvedValue(undefined)
@@ -86,7 +88,53 @@ describe("daily cloud CLI contract", () => {
     expect(exitCode).toBe(0);
     expect(writeResult).toHaveBeenCalledWith(expect.objectContaining({ status: "complete", runId: "run-1" }));
     expect(warn).toHaveBeenCalledWith("Optional daily notification failed after persistence");
+    expect(writeNotificationResult).toHaveBeenCalledWith({
+      event: "daily_notification",
+      runId: "run-1",
+      runStatus: "complete",
+      deliveryStatus: "failed",
+      channel: "none",
+      errorCategory: "notification_internal"
+    });
     expect(JSON.stringify(warn.mock.calls)).not.toContain("provider output containing a secret");
+    expect(JSON.stringify(writeNotificationResult.mock.calls)).not.toContain("provider output containing a secret");
+  });
+
+  it("writes a bounded structured daily_notification success result", async () => {
+    const writeNotificationResult = vi.fn();
+    await executeDailyJobCli([], {
+      runPipeline: vi.fn().mockResolvedValue({
+        status: "complete_with_warnings",
+        disposition: "executed",
+        runId: "run-1",
+        retryable: false,
+        startedAt: "",
+        finishedAt: "",
+        sources: [],
+        stages: []
+      }),
+      notify: vi.fn().mockResolvedValue({
+        deliveryStatus: "sent",
+        channel: "email",
+        businessDate: "2026-07-30",
+        recommendationCount: 12,
+        warningSummary: "失败来源：journal"
+      }),
+      writeNotificationResult,
+      writeResult: vi.fn(),
+      disconnect: vi.fn().mockResolvedValue(undefined)
+    });
+
+    expect(writeNotificationResult).toHaveBeenCalledWith({
+      event: "daily_notification",
+      runId: "run-1",
+      runStatus: "complete_with_warnings",
+      deliveryStatus: "sent",
+      channel: "email",
+      businessDate: "2026-07-30",
+      recommendationCount: 12,
+      warningSummary: "失败来源：journal"
+    });
   });
 
   it("returns failure and disconnects after parser or pipeline exceptions", async () => {
@@ -111,11 +159,13 @@ describe("daily cloud CLI contract", () => {
 
   it("suppresses notifications for reused and active runs", async () => {
     const notify = vi.fn();
+    const writeNotificationResult = vi.fn();
     for (const disposition of ["already_succeeded", "already_running"] as const) {
       await executeDailyJobCli([], {
         runPipeline: vi.fn().mockResolvedValue({
           status: disposition === "already_running" ? "running" : "complete",
           disposition,
+          runId: "run-1",
           retryable: false,
           startedAt: "",
           finishedAt: "",
@@ -123,10 +173,28 @@ describe("daily cloud CLI contract", () => {
           stages: []
         }),
         notify,
+        writeNotificationResult,
         writeResult: vi.fn(),
         disconnect: vi.fn().mockResolvedValue(undefined)
       });
     }
     expect(notify).not.toHaveBeenCalled();
+    expect(writeNotificationResult).toHaveBeenNthCalledWith(1, {
+      event: "daily_notification",
+      runId: "run-1",
+      runStatus: "complete",
+      deliveryStatus: "skipped",
+      channel: "none",
+      reason: "already_succeeded",
+      deduplicated: true
+    });
+    expect(writeNotificationResult).toHaveBeenNthCalledWith(2, {
+      event: "daily_notification",
+      runId: "run-1",
+      runStatus: "running",
+      deliveryStatus: "skipped",
+      channel: "none",
+      reason: "already_running"
+    });
   });
 });

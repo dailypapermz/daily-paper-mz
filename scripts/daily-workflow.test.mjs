@@ -7,6 +7,14 @@ const notificationTestWorkflow = readFileSync(
   new URL("../.github/workflows/notification-test.yml", import.meta.url),
   "utf8"
 );
+const dailyCloudRunner = readFileSync(
+  new URL("./run-daily-cloud.ts", import.meta.url),
+  "utf8"
+);
+const dailyCli = readFileSync(
+  new URL("../src/jobs/daily-cli.ts", import.meta.url),
+  "utf8"
+);
 
 test("cloud daily workflow exposes the approved schedule and manual runDate", () => {
   assert.match(workflow, /schedule:\s*\n\s*- cron: ["']15 8 \* \* \*["']\s*\n\s*timezone: ["']Asia\/Shanghai["']/);
@@ -66,6 +74,15 @@ test("cloud daily workflow migrates before invoking the existing CLI", () => {
     previous = current;
   }
   assert.match(workflow, /npm run job:daily:cloud -- --run-date ["']\$RUN_DATE["']/);
+});
+
+test("scheduled daily CLI emits a bounded structured daily_notification result", () => {
+  assert.match(dailyCloudRunner, /writeNotificationResult:\s*\(result\)\s*=>\s*console\.log\(JSON\.stringify\(result\)\)/);
+  assert.match(dailyCli, /event:\s*["']daily_notification["']/);
+  assert.match(dailyCli, /deliveryStatus:\s*["']skipped["']/);
+  assert.match(dailyCli, /reason:\s*pipeline\.disposition/);
+  assert.match(dailyCli, /deduplicated:\s*true/);
+  assert.doesNotMatch(dailyCloudRunner, /delivery\.attempts|error\.message|process\.env\.(?:DATABASE_URL|NOTIFICATION_SMTP_PASS)/);
 });
 
 test("cloud daily workflow contains no plaintext credentials or Worker trigger", () => {
