@@ -45,18 +45,18 @@ jobs:
         shell: bash
         run: |
           node --input-type=module <<'NODE'
-          import { sendDailyNotification } from "./scripts/daily-notifier.mjs";
+          import { buildDailyNotification, sendDailyNotification } from "./scripts/daily-notifier.mjs";
 
-          const notification = {
-            title: "Daily Paper notification test",
-            status: "notification_test",
-            recommendationCount: 0,
-            sourceCounts: {},
-            failedSources: [],
-            papers: [],
-            topPapers: [],
-            dashboardUrl: process.env.NOTIFICATION_DASHBOARD_URL
-          };
+          const notification = buildDailyNotification({
+            pipelinePayload: {
+              status: "notification_test",
+              result: { runId: "notification-test", sources: [] }
+            },
+            feed: { recommendations: [] },
+            dashboardUrl: process.env.NOTIFICATION_DASHBOARD_URL,
+            businessDate: "notification-test"
+          });
+          notification.title = "Daily Paper notification test";
           const smtpEnv = {
             NOTIFICATION_SMTP_HOST: process.env.NOTIFICATION_SMTP_HOST,
             NOTIFICATION_SMTP_PORT: process.env.NOTIFICATION_SMTP_PORT,

@@ -5,11 +5,34 @@ export type DailyJobCliResult = Pick<
   "status" | "disposition" | "runId" | "failedStage" | "retryable"
 >;
 
+export type DailyNotificationDeliverySummary = {
+  deliveryStatus: "sent" | "skipped" | "failed";
+  channel: "wecom" | "email" | "none";
+  businessDate?: string;
+  recommendationCount?: number;
+  warningSummary?: string;
+  reason?: "configuration_incomplete";
+  errorCategory?: "delivery_failed";
+};
+
+export type DailyNotificationLogResult = Omit<
+  DailyNotificationDeliverySummary,
+  "reason" | "errorCategory"
+> & {
+  event: "daily_notification";
+  runId?: string;
+  runStatus: DailyPipelineRunSummary["status"];
+  reason?: "configuration_incomplete" | "already_succeeded" | "already_running" | "missing_run_id";
+  errorCategory?: "delivery_failed" | "notification_internal";
+  deduplicated?: boolean;
+};
+
 export type DailyJobCliDependencies = {
   runPipeline(input?: { runDate?: string }): Promise<DailyPipelineRunSummary>;
   disconnect(): Promise<void>;
   writeResult(result: DailyJobCliResult): void;
-  notify?(pipeline: DailyPipelineRunSummary): Promise<void>;
+  notify?(pipeline: DailyPipelineRunSummary): Promise<DailyNotificationDeliverySummary>;
+  writeNotificationResult?(result: DailyNotificationLogResult): void;
   warn?(message: string): void;
 };
 
@@ -52,14 +75,48 @@ export async function executeDailyJobCli(
       retryable: pipeline.retryable
     };
     dependencies.writeResult(result);
-    if (
+    if (dependencies.notify && !pipeline.runId) {
+      dependencies.writeNotificationResult?.({
+        event: "daily_notification",
+        runStatus: pipeline.status,
+        deliveryStatus: "skipped",
+        channel: "none",
+        reason: "missing_run_id"
+      });
+    } else if (
       dependencies.notify &&
-      pipeline.disposition !== "already_succeeded" &&
-      pipeline.disposition !== "already_running"
+      (pipeline.disposition === "already_succeeded" || pipeline.disposition === "already_running")
     ) {
+      dependencies.writeNotificationResult?.({
+        event: "daily_notification",
+        runId: pipeline.runId,
+        runStatus: pipeline.status,
+        deliveryStatus: "skipped",
+        channel: "none",
+        reason: pipeline.disposition,
+        ...(pipeline.disposition === "already_succeeded" ? { deduplicated: true } : {})
+      });
+    } else if (dependencies.notify) {
       try {
-        await dependencies.notify(pipeline);
+        const delivery = await dependencies.notify(pipeline);
+        dependencies.writeNotificationResult?.({
+          event: "daily_notification",
+          runId: pipeline.runId,
+          runStatus: pipeline.status,
+          ...delivery
+        });
+        if (delivery.deliveryStatus === "failed") {
+          dependencies.warn?.("Optional daily notification failed after persistence");
+        }
       } catch {
+        dependencies.writeNotificationResult?.({
+          event: "daily_notification",
+          runId: pipeline.runId,
+          runStatus: pipeline.status,
+          deliveryStatus: "failed",
+          channel: "none",
+          errorCategory: "notification_internal"
+        });
         dependencies.warn?.("Optional daily notification failed after persistence");
       }
     }
