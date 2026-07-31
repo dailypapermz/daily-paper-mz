@@ -11,8 +11,9 @@ export type DailyNotificationDeliverySummary = {
   businessDate?: string;
   recommendationCount?: number;
   warningSummary?: string;
-  reason?: "configuration_incomplete";
+  reason?: "configuration_incomplete" | "already_sent" | "legacy_suppressed" | "delivery_outcome_unknown";
   errorCategory?: "delivery_failed";
+  deduplicated?: boolean;
 };
 
 export type DailyNotificationLogResult = Omit<
@@ -22,7 +23,7 @@ export type DailyNotificationLogResult = Omit<
   event: "daily_notification";
   runId?: string;
   runStatus: DailyPipelineRunSummary["status"];
-  reason?: "configuration_incomplete" | "already_succeeded" | "already_running" | "missing_run_id";
+  reason?: "configuration_incomplete" | "already_sent" | "legacy_suppressed" | "delivery_outcome_unknown" | "already_succeeded" | "already_running" | "missing_run_id";
   errorCategory?: "delivery_failed" | "notification_internal";
   deduplicated?: boolean;
 };
@@ -54,7 +55,7 @@ export function parseDailyJobArgs(args: string[]): { runDate?: string } {
 }
 
 export function dailyJobExitCode(result: DailyJobCliResult): 0 | 1 {
-  if (result.disposition === "already_running") return 1;
+  if (result.disposition === "already_running") return 0;
   if (result.status === "complete" || result.status === "complete_with_warnings") return 0;
   if (result.status === "partial" && !result.retryable) return 0;
   return 1;
@@ -85,7 +86,7 @@ export async function executeDailyJobCli(
       });
     } else if (
       dependencies.notify &&
-      (pipeline.disposition === "already_succeeded" || pipeline.disposition === "already_running")
+      pipeline.disposition === "already_running"
     ) {
       dependencies.writeNotificationResult?.({
         event: "daily_notification",
@@ -93,8 +94,7 @@ export async function executeDailyJobCli(
         runStatus: pipeline.status,
         deliveryStatus: "skipped",
         channel: "none",
-        reason: pipeline.disposition,
-        ...(pipeline.disposition === "already_succeeded" ? { deduplicated: true } : {})
+        reason: pipeline.disposition
       });
     } else if (dependencies.notify) {
       try {

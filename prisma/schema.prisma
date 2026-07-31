@@ -114,6 +114,17 @@ enum DailyPipelineRunStatus {
   FAILED
 }
 
+enum DailyNotificationDeliveryStatus {
+  SENDING
+  SENT
+  LEGACY_SUPPRESSED
+}
+
+enum DailyNotificationChannel {
+  WECOM
+  EMAIL
+}
+
 enum DailyPipelineStage {
   INGESTION
   ENRICHMENT
@@ -472,6 +483,9 @@ model DailyIngestionRun {
   source         DailyIngestionRunSource
   status         DailyIngestionRunStatus @default(RUNNING)
   pipelineStatus DailyPipelineRunStatus?
+  notificationDeliveryStatus DailyNotificationDeliveryStatus?
+  notificationChannel DailyNotificationChannel?
+  notificationSentAt DateTime?
   runDate        DateTime
   startedAt      DateTime              @default(now())
   finishedAt     DateTime?
@@ -689,6 +703,7 @@ model DailyRecallResult {
 
 model DailyRerankRun {
   id               String           @id @default(cuid())
+  requestKey       String?          @unique
   runId            String
   recallRunId      String
   profileSnapshotId String

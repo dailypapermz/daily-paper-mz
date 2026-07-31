@@ -27,7 +27,7 @@ describe("daily cloud CLI contract", () => {
     [{ status: "partial", disposition: "executed", retryable: false }, 0],
     [{ status: "partial", disposition: "resumed", retryable: true }, 1],
     [{ status: "failed", disposition: "executed", retryable: true }, 1],
-    [{ status: "running", disposition: "already_running", retryable: false }, 1]
+    [{ status: "running", disposition: "already_running", retryable: false }, 0]
   ] as const)("maps %j to exit code %i", (result, exitCode) => {
     expect(dailyJobExitCode(result)).toBe(exitCode);
   });
@@ -157,38 +157,27 @@ describe("daily cloud CLI contract", () => {
     expect(disconnect).toHaveBeenCalledOnce();
   });
 
-  it("suppresses notifications for reused and active runs", async () => {
+  it("suppresses notifications only for active runs", async () => {
     const notify = vi.fn();
     const writeNotificationResult = vi.fn();
-    for (const disposition of ["already_succeeded", "already_running"] as const) {
-      await executeDailyJobCli([], {
-        runPipeline: vi.fn().mockResolvedValue({
-          status: disposition === "already_running" ? "running" : "complete",
-          disposition,
-          runId: "run-1",
-          retryable: false,
-          startedAt: "",
-          finishedAt: "",
-          sources: [],
-          stages: []
-        }),
-        notify,
-        writeNotificationResult,
-        writeResult: vi.fn(),
-        disconnect: vi.fn().mockResolvedValue(undefined)
-      });
-    }
-    expect(notify).not.toHaveBeenCalled();
-    expect(writeNotificationResult).toHaveBeenNthCalledWith(1, {
-      event: "daily_notification",
-      runId: "run-1",
-      runStatus: "complete",
-      deliveryStatus: "skipped",
-      channel: "none",
-      reason: "already_succeeded",
-      deduplicated: true
+    await executeDailyJobCli([], {
+      runPipeline: vi.fn().mockResolvedValue({
+        status: "running",
+        disposition: "already_running",
+        runId: "run-1",
+        retryable: false,
+        startedAt: "",
+        finishedAt: "",
+        sources: [],
+        stages: []
+      }),
+      notify,
+      writeNotificationResult,
+      writeResult: vi.fn(),
+      disconnect: vi.fn().mockResolvedValue(undefined)
     });
-    expect(writeNotificationResult).toHaveBeenNthCalledWith(2, {
+    expect(notify).not.toHaveBeenCalled();
+    expect(writeNotificationResult).toHaveBeenCalledWith({
       event: "daily_notification",
       runId: "run-1",
       runStatus: "running",
@@ -196,5 +185,40 @@ describe("daily cloud CLI contract", () => {
       channel: "none",
       reason: "already_running"
     });
+  });
+
+  it("lets persisted delivery state deduplicate an already-succeeded run", async () => {
+    const writeNotificationResult = vi.fn();
+    const notify = vi.fn().mockResolvedValue({
+      deliveryStatus: "skipped",
+      channel: "none",
+      businessDate: "2026-07-30",
+      reason: "already_sent",
+      deduplicated: true
+    });
+    await executeDailyJobCli([], {
+      runPipeline: vi.fn().mockResolvedValue({
+        status: "complete",
+        disposition: "already_succeeded",
+        runId: "run-1",
+        retryable: false,
+        startedAt: "",
+        finishedAt: "",
+        sources: [],
+        stages: []
+      }),
+      notify,
+      writeNotificationResult,
+      writeResult: vi.fn(),
+      disconnect: vi.fn().mockResolvedValue(undefined)
+    });
+
+    expect(notify).toHaveBeenCalledOnce();
+    expect(writeNotificationResult).toHaveBeenCalledWith(expect.objectContaining({
+      runId: "run-1",
+      deliveryStatus: "skipped",
+      reason: "already_sent",
+      deduplicated: true
+    }));
   });
 });

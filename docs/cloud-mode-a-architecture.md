@@ -21,7 +21,7 @@ Status: approved architecture; PR 1–PR 3 contracts are implemented. Worker dep
 - The first personal instance uses Neon PostgreSQL in AWS `eu-central-1` (Frankfurt). Region is a deployment choice, never an application default; deployment guidance tells each user to choose a nearby Neon region.
 - The first Cloud database starts empty after the PostgreSQL migration history is deployed. Existing SQLite remains untouched; Zotero data and profile snapshots are rebuilt through normal synchronization. Historical recommendation/feedback import remains an optional later maintenance interface.
 - The first release uses `daily-paper.<account-subdomain>.workers.dev` with preview URLs disabled. Cloudflare Access uses an instance-owner email allowlist configured outside the repository. Dashboard and interactive APIs are protected; no public-domain or `Everyone` allow policy is permitted. Headless callers use a separate service token if a future API call needs one.
-- The template workflow uses `Asia/Shanghai` at 08:15 and retains `workflow_dispatch` with optional `runDate`. Each user may edit `.github/workflows/daily.yml`; cron and timezone are not business-code settings.
+- The template workflow uses `Asia/Shanghai` at 08:15 and retains `workflow_dispatch` with a required, strictly validated UTC `runDate`. Each user may edit `.github/workflows/daily.yml`; cron and timezone are not business-code settings.
 
 The owner's actual login address, Neon credentials, database URL, and Access policy values are personal deployment data and must not be committed.
 
@@ -70,15 +70,17 @@ Implemented in `.github/workflows/daily.yml`:
 events:
   schedule: fixed non-top-of-hour UTC/IANA schedule committed to default branch
   workflow_dispatch:
-    runDate: optional YYYY-MM-DD
+    runDate: required YYYY-MM-DD for manual dispatch
     sources: optional validated choice/list
 
 permissions:
-  contents: read
+  workflow: contents: read
+  preflight job: contents: read plus actions: read
 
 concurrency:
-  group: daily-paper-cloud-production
+  group: daily-paper-cloud-production-<businessDate>
   cancel-in-progress: false
+  queue: max (up to 100 pending runs)
 
 job:
   runs-on: ubuntu-latest
@@ -88,7 +90,8 @@ job:
     checkout pinned major/SHA policy
     setup Node 22 with npm cache
     npm ci
-    run cloud configuration preflight
+    run event/date/branch/active-run preflight without production secrets
+    enter the production environment only after preflight accepts the run
     validate and generate the PostgreSQL Prisma client
     prisma migrate deploy using the independent PostgreSQL history
     run direct daily CLI with validated runDate

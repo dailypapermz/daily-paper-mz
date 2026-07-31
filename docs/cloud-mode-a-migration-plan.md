@@ -104,10 +104,10 @@ job result/exit-code contract
 
 Workflow requirements:
 
-- `schedule` plus `workflow_dispatch` with validated optional `runDate`;
+- `schedule` plus `workflow_dispatch` with a required, strictly validated UTC `runDate` for manual dispatch;
 - Node 22, `npm ci`, explicit PostgreSQL schema/client;
-- protected production environment and `contents: read` only;
-- constant production concurrency group and `cancel-in-progress: false`;
+- protected production environment with `contents: read`; `actions: read` is scoped only to the secret-free preflight job;
+- business-date production concurrency group, `cancel-in-progress: false`, and bounded queue wait;
 - measured timeout;
 - validate/generate the independent PostgreSQL client and run `prisma migrate deploy`, never `migrate dev`;
 - direct job execution, not `/api/jobs/daily`;
