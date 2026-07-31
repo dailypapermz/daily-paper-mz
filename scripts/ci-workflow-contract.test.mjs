@@ -32,6 +32,9 @@ test("all workflows use current Node 24-based helper action majors", () => {
 
 test("continuous integration is least-privileged and contains no secret context", () => {
   assert.match(ci, /permissions:\s*\n\s*contents: read/);
+  const secretScan = ci.slice(ci.indexOf("  secret-scan:"), ci.indexOf("  quality:"));
+  assert.match(secretScan, /permissions:\s*\n\s*contents: read\s*\n\s*pull-requests: read/);
+  assert.doesNotMatch(secretScan, /pull-requests: write|actions: write|contents: write/);
   assert.match(ci, /pull_request:/);
   assert.match(ci, /push:/);
   assert.match(ci, /workflow_dispatch:/);
