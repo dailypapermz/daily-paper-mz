@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "node scripts/build.mjs",
     "start": "next start",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && npm run typecheck:worker",
+    "typecheck:worker": "npm run cf:typegen && tsc --noEmit -p tsconfig.worker.json",
     "test": "node --test scripts/daily-notifier.test.mjs scripts/daily-workflow.test.mjs scripts/profile-workflow.test.mjs && vitest run --pool=threads",
     "test:notification": "node --test scripts/daily-notifier.test.mjs",
     "test:workflow": "node --test scripts/daily-workflow.test.mjs scripts/profile-workflow.test.mjs scripts/ci-workflow-contract.test.mjs scripts/ci-migration-check.test.mjs scripts/production-audit-check.test.mjs",
@@ -39,8 +40,10 @@
     "cf:build": "node scripts/run-opennext.mjs build",
     "cf:preview": "npm run cf:build && node scripts/run-opennext.mjs preview",
     "cf:deploy": "npm run cf:build && node scripts/run-opennext.mjs deploy -- --keep-vars",
+    "cf:dry-run": "wrangler deploy --dry-run --outdir dist/cloudflare-dry-run",
+    "cf:secret-scan": "node scripts/cloudflare-final-bundle-contract.mjs",
     "cf:typegen": "node scripts/run-cloudflare-typegen.mjs",
-    "test:cloudflare": "node --test scripts/cloudflare-contract.test.mjs scripts/cloudflare-artifact-contract.test.mjs && node scripts/cloudflare-artifact-contract.mjs",
+    "test:cloudflare": "node --test scripts/cloudflare-contract.test.mjs scripts/cloudflare-artifact-contract.test.mjs scripts/cloudflare-final-bundle-contract.test.mjs && node scripts/cloudflare-artifact-contract.mjs",
     "pretest": "npm run prisma:generate:all"
   },
   "dependencies": {
@@ -55,6 +58,7 @@
     "react-dom": "^19.0.0"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "5.20260731.1",
     "@opennextjs/cloudflare": "1.20.2",
     "@types/node": "^22.0.0",
     "@types/react": "^19.0.0",

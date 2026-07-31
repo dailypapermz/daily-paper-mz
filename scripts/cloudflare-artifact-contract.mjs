@@ -53,12 +53,15 @@ export async function validateOpenNextArtifact(root) {
     if (/qyapi\.weixin\.qq\.com\/cgi-bin\/webhook\/send\?key=/i.test(content)) {
       throw new Error(`Worker artifact contains an embedded webhook URL in ${relative(root, file)}.`);
     }
+    if (/(?:github_pat_[A-Za-z0-9_]{20,}|gh[pousr]_[A-Za-z0-9]{20,})/.test(content)) {
+      throw new Error(`Worker artifact contains an embedded GitHub token in ${relative(root, file)}.`);
+    }
   }
 
   console.log(JSON.stringify({ status: "ok", artifact: ".open-next", files: entries.length }));
 }
 
-function containsCredentialedPostgresUrl(content) {
+export function containsCredentialedPostgresUrl(content) {
   const candidates = content.match(/postgres(?:ql)?:\/\/[^\s"'`<>\\]+/gi) ?? [];
   return candidates.some((candidate) => {
     if (candidate.includes("${")) return false;

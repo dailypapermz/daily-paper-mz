@@ -44,6 +44,23 @@ test("artifact contract rejects native engines and embedded credentials", async 
   await assert.rejects(validateOpenNextArtifact(root), /embedded credentialed PostgreSQL URL/);
 });
 
+test("artifact contract rejects embedded GitHub tokens", async (context) => {
+  const root = join(import.meta.dirname, `.tmp-github-token-open-next-${process.pid}`);
+  context.after(() => rm(root, { recursive: true, force: true }));
+  await mkdir(join(root, "assets"), { recursive: true });
+  await mkdir(join(root, "server-functions", "default"), { recursive: true });
+  await writeFile(join(root, "worker.js"), "export default {};\n", "utf8");
+  await writeFile(join(root, "assets", "index.txt"), "public\n", "utf8");
+  const tokenMarker = ["github", "pat", "abcdefghijklmnopqrstuvwxyz123456"].join("_");
+  await writeFile(
+    join(root, "server-functions", "default", "handler.mjs"),
+    `const token = '${tokenMarker}';\n`,
+    "utf8"
+  );
+
+  await assert.rejects(validateOpenNextArtifact(root), /embedded GitHub token/);
+});
+
 test("artifact contract does not join a credential-free URL to later minified punctuation", async (context) => {
   const root = join(import.meta.dirname, `.tmp-safe-url-open-next-${process.pid}`);
   context.after(() => rm(root, { recursive: true, force: true }));

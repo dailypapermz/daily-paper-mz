@@ -8,6 +8,7 @@ import {
   resolveBusinessDate,
   runDailyWorkflowGuard
 } from "./daily-workflow-guard.mjs";
+import { resolveScheduledBusinessDate } from "./daily-business-date.mjs";
 import {
   buildDailyConcurrencyGroup,
   buildSkippedDailyNotification,
@@ -41,6 +42,10 @@ const persistedDailyState = readFileSync(
 );
 const ingestionFoundation = readFileSync(
   new URL("../src/modules/ingestion/ingestion-foundation.service.ts", import.meta.url),
+  "utf8"
+);
+const cloudflareDailyScheduler = readFileSync(
+  new URL("../src/cloudflare/daily-scheduler.ts", import.meta.url),
   "utf8"
 );
 
@@ -163,47 +168,53 @@ test("manual preflight returns a safe no-op when the Actions API reports an acti
   });
 });
 
-test("same-date scheduled and manual runs share one gate and only one reaches migration or notification", () => {
-  const scheduledDate = resolveBusinessDate({
+test("Cloudflare dispatch first and a later native schedule share one gate; the follower safely skips", () => {
+  const cloudflareScheduledTime = Date.parse("2026-07-31T00:15:00.000Z");
+  const cloudflareDispatchDate = resolveScheduledBusinessDate(cloudflareScheduledTime);
+  const delayedNativeScheduleDate = resolveBusinessDate({
     eventName: "schedule",
     ref: "refs/heads/master",
-    now: new Date("2026-07-31T00:15:00.000Z")
+    now: new Date("2026-07-31T03:00:00.000Z")
   });
-  const manualDate = resolveBusinessDate({
+  const dispatchedDate = resolveBusinessDate({
     eventName: "workflow_dispatch",
     ref: "refs/heads/master",
-    manualRunDate: "2026-07-30"
+    manualRunDate: cloudflareDispatchDate
   });
   const repository = "owner/repo";
-  assert.equal(scheduledDate, manualDate);
+  assert.equal(cloudflareDispatchDate, "2026-07-30");
+  assert.equal(dispatchedDate, delayedNativeScheduleDate);
   assert.equal(
-    buildDailyConcurrencyGroup({ repository, businessDate: scheduledDate }),
-    buildDailyConcurrencyGroup({ repository, businessDate: manualDate })
+    buildDailyConcurrencyGroup({ repository, businessDate: cloudflareDispatchDate }),
+    buildDailyConcurrencyGroup({ repository, businessDate: delayedNativeScheduleDate })
   );
+  assert.match(cloudflareDailyScheduler, /actions\/workflows\/daily\.yml\/dispatches/);
+  assert.match(cloudflareDailyScheduler, /ref:\s*["']master["']/);
+  assert.match(cloudflareDailyScheduler, /inputs:\s*\{\s*runDate\s*\}/);
   assert.match(
     ingestionFoundation,
     /DEFAULT_SOURCES:\s*DailyCandidateSourceValue\[\]\s*=\s*\["biorxiv",\s*"arxiv",\s*"pubmed",\s*"journal"\]/
   );
 
-  const manualWinner = decidePersistedDailyExecution(null);
-  const scheduledFollower = decidePersistedDailyExecution({
+  const cloudflareWinner = decidePersistedDailyExecution(null);
+  const nativeScheduleFollower = decidePersistedDailyExecution({
     id: "run-2026-07-30",
     pipelineStatus: "COMPLETE",
     hasNotificationDeliveryStatus: true,
     notificationDeliveryStatus: "SENT"
   });
-  assert.deepEqual(manualWinner, {
+  assert.deepEqual(cloudflareWinner, {
     runMigration: true,
     runDailyJob: true,
     reason: "new_run"
   });
-  assert.deepEqual(scheduledFollower, {
+  assert.deepEqual(nativeScheduleFollower, {
     runMigration: false,
     runDailyJob: false,
     reason: "already_sent"
   });
-  assert.equal([manualWinner, scheduledFollower].filter((run) => run.runMigration).length, 1);
-  assert.equal([manualWinner, scheduledFollower].filter((run) => run.runDailyJob).length, 1);
+  assert.equal([cloudflareWinner, nativeScheduleFollower].filter((run) => run.runMigration).length, 1);
+  assert.equal([cloudflareWinner, nativeScheduleFollower].filter((run) => run.runDailyJob).length, 1);
   assert.match(workflow, /id: persisted[\s\S]*?job:daily:guard/);
   assert.match(workflow, /Deploy PostgreSQL migrations\s*\n\s*if: steps\.persisted\.outputs\.run_migration == ["']true["']/);
   assert.match(workflow, /Run daily pipeline\s*\n\s*if: steps\.persisted\.outputs\.run_daily_job == ["']true["']/);

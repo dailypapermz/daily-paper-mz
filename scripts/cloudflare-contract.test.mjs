@@ -34,6 +34,12 @@ const prismaEnginePruner = await readFile(
   new URL("./prune-opennext-prisma-engines.mjs", import.meta.url),
   "utf8"
 );
+const ciWorkflow = await readFile(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
+const customWorker = await readFile(new URL("../custom-worker.ts", import.meta.url), "utf8");
+const dailyScheduler = await readFile(
+  new URL("../src/cloudflare/daily-scheduler.ts", import.meta.url),
+  "utf8"
+);
 
 test("Cloudflare scripts preserve the existing local commands", () => {
   assert.equal(packageJson.scripts.dev, "next dev");
@@ -41,23 +47,49 @@ test("Cloudflare scripts preserve the existing local commands", () => {
   assert.equal(packageJson.scripts["cf:build"], "node scripts/run-opennext.mjs build");
   assert.match(packageJson.scripts["cf:preview"], /run-opennext\.mjs preview/);
   assert.match(packageJson.scripts["cf:deploy"], /--keep-vars/);
+  assert.match(packageJson.scripts["cf:dry-run"], /wrangler deploy --dry-run/);
+  assert.match(packageJson.scripts["cf:secret-scan"], /cloudflare-final-bundle-contract\.mjs/);
   assert.match(packageJson.scripts["cf:typegen"], /run-cloudflare-typegen\.mjs/);
   assert.match(typegenRunner, /wranglerCli/);
   assert.match(typegenRunner, /"types"/);
+  assert.match(typegenRunner, /path\.resolve\(["']\.wrangler\/types["']\)/);
+  assert.match(packageJson.scripts["typecheck:worker"], /tsconfig\.worker\.json/);
+  assert.match(packageJson.devDependencies["@cloudflare/workers-types"], /^5\./);
   assert.match(packageJson.scripts["prisma:worker:generate"], /workerClient/);
 });
 
-test("Wrangler targets a protected OpenNext Worker", () => {
+test("Wrangler targets a protected OpenNext custom Worker with the exact UTC Cron", () => {
   assert.match(wrangler, /"name"\s*:\s*"daily-paper"/);
-  assert.match(wrangler, /"main"\s*:\s*"\.open-next\/worker\.js"/);
+  assert.match(wrangler, /"main"\s*:\s*"custom-worker\.ts"/);
   assert.match(wrangler, /"nodejs_compat"/);
   assert.match(wrangler, /"workers_dev"\s*:\s*true/);
   assert.match(wrangler, /"preview_urls"\s*:\s*false/);
   assert.match(wrangler, /"run_worker_first"\s*:\s*true/);
   assert.match(wrangler, /"DEPLOYMENT_MODE"\s*:\s*"cloud"/);
   assert.match(wrangler, /"NEXT_PUBLIC_DEPLOYMENT_MODE"\s*:\s*"cloud"/);
+  assert.match(wrangler, /"triggers"\s*:\s*\{\s*"crons"\s*:\s*\["15 0 \* \* \*"\]/);
+  assert.match(
+    wrangler,
+    /"secrets"\s*:\s*\{\s*"required"\s*:\s*\["DAILY_SCHEDULER_GITHUB_TOKEN"\]/
+  );
+  const varsBlock = wrangler.match(/"vars"\s*:\s*\{([\s\S]*?)\n\s*\}/)?.[1] ?? "";
+  assert.doesNotMatch(varsBlock, /DAILY_SCHEDULER_GITHUB_TOKEN|github_pat_|ghp_/);
   assert.doesNotMatch(wrangler, /DATABASE_URL|ZOTERO_KEY|LLM_API_KEY|@126\.com/);
   assert.doesNotMatch(wrangler, /ACCESS_JWT_LOCAL_PREVIEW_BYPASS/);
+});
+
+test("custom Worker preserves OpenNext fetch and delegates only scheduled dispatch", () => {
+  assert.match(customWorker, /from\s+["']\.\/\.open-next\/worker\.js["']/);
+  assert.match(customWorker, /fetch:\s*openNextHandler\.fetch/);
+  assert.match(customWorker, /scheduled\(controller, env\)/);
+  assert.match(customWorker, /handleDailySchedule\(controller, env\)/);
+  assert.match(dailyScheduler, /linyuan701\/daily-paper\/actions\/workflows\/daily\.yml\/dispatches/);
+  assert.match(dailyScheduler, /ref:\s*["']master["']/);
+  assert.match(dailyScheduler, /controller\.noRetry\(\)/);
+  assert.doesNotMatch(
+    customWorker + dailyScheduler,
+    /run-daily-cloud|daily-recommendation-pipeline|DATABASE_URL|NOTIFICATION_SMTP|prisma|rerank/i
+  );
 });
 
 test("Worker build selects the OpenNext-patchable Neon client without replacing Node clients", () => {
@@ -133,6 +165,8 @@ test("Linux workerd preview is exercised without production secrets", () => {
   assert.match(previewWorkflow, /node-version: 22/);
   assert.match(previewWorkflow, /env -u DATABASE_URL npm run cf:build/);
   assert.match(previewWorkflow, /node scripts\/cloudflare-artifact-contract\.mjs/);
+  assert.match(previewWorkflow, /npm run cf:dry-run/);
+  assert.match(previewWorkflow, /npm run cf:secret-scan/);
   assert.ok(
     previewWorkflow.indexOf("node scripts/cloudflare-artifact-contract.mjs") >
       previewWorkflow.indexOf("env -u DATABASE_URL npm run cf:build"),
@@ -163,6 +197,8 @@ test("Linux workerd preview is exercised without production secrets", () => {
   assert.match(prismaEnginePruner, /unlink\(file\)/);
   assert.match(artifactContract, /PRIVATE KEY/);
   assert.match(artifactContract, /credentialed PostgreSQL URL/);
+  assert.match(ciWorkflow, /gitleaks\/gitleaks-action@[a-f0-9]{40}/);
+  assert.match(ciWorkflow, /fetch-depth:\s*0/);
 });
 
 test("Cloud dashboard and APIs validate Access JWTs in the Worker", async () => {

@@ -1,0 +1,14 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "incremental": false,
+    "types": ["@cloudflare/workers-types"]
+  },
+  "include": [
+    "custom-worker.ts",
+    "scripts/daily-business-date.d.mts",
+    "src/cloudflare/**/*.ts",
+    ".wrangler/types/cloudflare-env.d.ts"
+  ],
+  "exclude": ["node_modules", ".open-next"]
+}
