@@ -91,7 +91,7 @@ Setup summary:
 2. Create a GitHub Actions environment named `production`.
 3. Add required secrets: `DATABASE_URL`, `ZOTERO_ID`, `ZOTERO_KEY`, and `LLM_API_KEY`.
 4. Optionally add `LLM_MODEL`, `LLM_API_BASE_URL`, `NOTIFICATION_DASHBOARD_URL`, WeCom, and SMTP settings.
-5. Run **Cloud daily recommendations** manually once, optionally with a strict `runDate` (`YYYY-MM-DD`).
+5. Run **Cloud daily recommendations** manually once with the required strict `runDate` (`YYYY-MM-DD`). For production fallback, follow the [guarded manual procedure](docs/production-daily-manual-fallback.md).
 6. Keep or edit the template schedule, which defaults to 08:15 `Asia/Shanghai` (UTC 00:15).
 
 The workflow validates/generates the PostgreSQL client, applies the independent cloud migration history, and then invokes the existing `job:daily:cloud` CLI. Notification settings are optional; failures do not roll back persisted results. See [Cloud Mode A GitHub Actions runbook](docs/cloud-mode-a-github-actions.md) for the full Secrets/Variables, schedule, retry, and exit-code contract.

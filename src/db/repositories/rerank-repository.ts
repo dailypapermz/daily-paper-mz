@@ -149,13 +149,27 @@ export class PrismaRerankRepository implements RerankRepository {
     profileSnapshotId: string;
     requestedTopN: number;
   }) {
-    const run = await this.db.dailyRerankRun.create({
-      data: {
+    const requestKey = buildDailyRerankRequestKey(input.runId);
+    const run = await this.db.dailyRerankRun.upsert({
+      where: { requestKey },
+      create: {
+        requestKey,
         runId: input.runId,
         recallRunId: input.recallRunId,
         profileSnapshotId: input.profileSnapshotId,
         requestedTopN: input.requestedTopN,
         status: "RUNNING"
+      },
+      update: {
+        recallRunId: input.recallRunId,
+        profileSnapshotId: input.profileSnapshotId,
+        requestedTopN: input.requestedTopN,
+        status: "RUNNING",
+        startedAt: new Date(),
+        finishedAt: null,
+        candidateCount: 0,
+        recommendedCount: 0,
+        errorMessage: null
       },
       select: {
         id: true
@@ -282,6 +296,10 @@ export class PrismaRerankRepository implements RerankRepository {
       }))
     };
   }
+}
+
+export function buildDailyRerankRequestKey(runId: string) {
+  return `daily:rerank:${runId}`;
 }
 
 function mapRunSummary(run: {

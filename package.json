@@ -34,7 +34,7 @@
     "prisma:worker:generate": "prisma generate --schema prisma/postgresql/schema.prisma --generator workerClient",
     "prisma:cloud:migrate:deploy": "prisma migrate deploy --schema prisma/postgresql/schema.prisma",
     "prisma:generate:all": "npm run prisma:local:generate && npm run prisma:cloud:generate && npm run prisma:worker:generate",
-    "test:db-contract": "npm run prisma:generate:all && node --test scripts/database-contract.test.mjs && vitest run src/db/prisma/runtime.test.ts src/db/prisma/client.test.ts src/db/repositories/postgresql-database.integration.test.ts src/db/repositories/daily-execution-postgresql.integration.test.ts --pool=threads",
+    "test:db-contract": "npm run prisma:generate:all && node --test scripts/database-contract.test.mjs && vitest run src/db/prisma/runtime.test.ts src/db/prisma/client.test.ts src/db/repositories/postgresql-database.integration.test.ts src/db/repositories/daily-execution-postgresql.integration.test.ts src/db/repositories/manual-fallback-postgresql.integration.test.ts --pool=threads",
     "cf:build": "node scripts/run-opennext.mjs build",
     "cf:preview": "npm run cf:build && node scripts/run-opennext.mjs preview",
     "cf:deploy": "npm run cf:build && node scripts/run-opennext.mjs deploy -- --keep-vars",

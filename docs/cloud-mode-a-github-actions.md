@@ -69,7 +69,7 @@ This is UTC 00:15 and deliberately avoids the top of the hour. To change it, edi
 
 GitHub's current schedule syntax and IANA timezone behavior are documented in [Workflow syntax for GitHub Actions](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#onschedule).
 
-For a manual run, open Actions, select **Cloud daily recommendations**, choose **Run workflow**, and optionally provide `runDate` as `YYYY-MM-DD`. Omit it to preserve the existing previous-UTC-day behavior. Invalid dates fail before source calls.
+For a manual run, `runDate` is required and must be an exact, valid UTC calendar date in `YYYY-MM-DD` form. Missing or invalid input fails before source calls and never falls back to another day. Use the guarded procedure in [Production daily manual fallback](./production-daily-manual-fallback.md); production dispatch is restricted to `master`.
 
 ## 5. Execution and retry semantics
 
@@ -91,6 +91,6 @@ The database request key and stage rows, not Actions concurrency, provide busine
 
 ## 6. Result and secret boundaries
 
-`complete`, `already_succeeded`, and non-retryable `partial` return exit code 0. Retryable `partial`, `failed`, `already_running`, invalid arguments, and configuration/factory failures return exit code 1. The CLI prints only `status`, `runId`, `failedStage`, and `retryable`.
+`complete`, `already_succeeded`, `already_running`, and non-retryable `partial` return exit code 0. `already_running` is a safe no-op for competing production workflows. Retryable `partial`, `failed`, invalid arguments, and configuration/factory failures return exit code 1. The CLI prints only bounded business and notification status fields.
 
-Do not add pull-request triggers to the production workflow. Do not echo environment objects, database URLs, provider responses, webhook URLs, or SMTP errors. The workflow has only `contents: read` repository permission and serializes production runs with a non-cancelling concurrency group.
+Do not add pull-request triggers to the production workflow. Do not echo environment objects, database URLs, provider responses, webhook URLs, or SMTP errors. The workflow grants `contents: read`; only the secret-free preflight job additionally gets `actions: read` to detect same-date active runs. The production job uses a non-cancelling, business-date concurrency group with `queue: max` (up to 100 pending runs).

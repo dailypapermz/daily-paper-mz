@@ -1,5 +1,7 @@
 name: Cloud daily recommendations
 
+run-name: Daily ${{ github.event_name == 'workflow_dispatch' && format('manual {0}', inputs.runDate) || 'scheduled' }}
+
 on:
   schedule:
     - cron: "15 8 * * *"
@@ -7,23 +9,53 @@ on:
   workflow_dispatch:
     inputs:
       runDate:
-        description: "Optional UTC business date (YYYY-MM-DD); omit for the previous UTC day"
-        required: false
+        description: "UTC business date YYYY-MM-DD"
+        required: true
         type: string
 
 permissions:
   contents: read
 
-concurrency:
-  group: daily-paper-cloud-${{ github.repository }}-production
-  cancel-in-progress: false
-
 jobs:
+  preflight:
+    name: Validate date and reject duplicate active runs
+    permissions:
+      contents: read
+      actions: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      run_date: ${{ steps.guard.outputs.run_date }}
+      should_run: ${{ steps.guard.outputs.should_run }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: Validate production fallback request
+        id: guard
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MANUAL_RUN_DATE: ${{ inputs.runDate }}
+        run: node scripts/daily-workflow-guard.mjs
+
   daily:
     name: Run persisted cloud daily pipeline
+    needs: preflight
+    if: needs.preflight.outputs.should_run == 'true'
     runs-on: ubuntu-latest
     environment: production
     timeout-minutes: 120
+    concurrency:
+      group: daily-paper-cloud-${{ github.repository }}-production-${{ needs.preflight.outputs.run_date }}
+      cancel-in-progress: false
+      queue: max
     env:
       DEPLOYMENT_MODE: cloud
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
@@ -75,10 +107,6 @@ jobs:
       - name: Run daily pipeline
         shell: bash
         env:
-          RUN_DATE: ${{ inputs.runDate }}
+          RUN_DATE: ${{ needs.preflight.outputs.run_date }}
         run: |
-          if [[ -n "$RUN_DATE" ]]; then
-            npm run job:daily:cloud -- --run-date "$RUN_DATE"
-          else
-            npm run job:daily:cloud
-          fi
+          npm run job:daily:cloud -- --run-date "$RUN_DATE"
