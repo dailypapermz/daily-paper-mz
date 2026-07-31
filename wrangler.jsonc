@@ -1,7 +1,7 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "daily-paper",
-  "main": ".open-next/worker.js",
+  "main": "custom-worker.ts",
   "compatibility_date": "2026-07-27",
   "compatibility_flags": ["nodejs_compat"],
   "workers_dev": true,
@@ -10,6 +10,12 @@
     "directory": ".open-next/assets",
     "binding": "ASSETS",
     "run_worker_first": true
+  },
+  "triggers": {
+    "crons": ["15 0 * * *"]
+  },
+  "secrets": {
+    "required": ["DAILY_SCHEDULER_GITHUB_TOKEN"]
   },
   "vars": {
     "DEPLOYMENT_MODE": "cloud",

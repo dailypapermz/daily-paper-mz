@@ -37,7 +37,11 @@ jobs:
         run: npm ci --no-audit --fund=false
 
       - name: Validate Worker contracts
-        run: node --test scripts/cloudflare-contract.test.mjs scripts/cloudflare-artifact-contract.test.mjs
+        run: >-
+          node --test
+          scripts/cloudflare-contract.test.mjs
+          scripts/cloudflare-artifact-contract.test.mjs
+          scripts/cloudflare-final-bundle-contract.test.mjs
 
       - name: Build OpenNext Worker
         shell: bash
@@ -45,6 +49,12 @@ jobs:
 
       - name: Validate generated Worker bundle
         run: node scripts/cloudflare-artifact-contract.mjs
+
+      - name: Bundle custom Worker without deploying
+        run: npm run cf:dry-run
+
+      - name: Scan final custom Worker bundle for secrets
+        run: npm run cf:secret-scan
 
       - name: Start workerd and run HTTP smoke tests
         shell: bash

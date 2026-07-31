@@ -119,6 +119,7 @@ The Access-protected `/operations` page and `/api/operations/runs` show recent p
 - typecheck: `npm run typecheck`
 - production build: `npm run build`
 - OpenNext Worker build: `npm run cf:build`
+- Scheduler reliability and manual secret setup: `docs/scheduler-reliability.md`
 - Cloudflare generated-artifact contract: `npm run test:cloudflare` (run after `cf:build`)
 
 If `next build` fails in Windows sandboxed environments with `EPERM ... Application Data`, run build with an isolated home/profile:

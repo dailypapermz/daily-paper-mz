@@ -1,6 +1,6 @@
 # Cloud Mode A: Cloudflare Workers deployment
 
-Cloud Mode A deploys the Next.js dashboard and short interactive APIs to Cloudflare Workers through OpenNext. GitHub Actions remains the only cloud daily-job runner and connects directly to Neon. The Worker never runs migrations or the seven-stage daily pipeline.
+Cloud Mode A deploys the Next.js dashboard and short interactive APIs to Cloudflare Workers through OpenNext. GitHub Actions remains the only cloud daily-job runner and connects directly to Neon. The Worker never runs migrations or the seven-stage daily pipeline. Its independent Cron handler only dispatches the existing GitHub workflow; see `docs/scheduler-reliability.md`.
 
 ## Runtime topology
 
@@ -22,8 +22,8 @@ Use Node 22 and install from the lockfile:
 ```text
 npm ci
 npm run cf:typegen
-npm run test:cloudflare
 npm run cf:build
+npm run test:cloudflare
 npm run cf:preview
 ```
 

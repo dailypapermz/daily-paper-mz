@@ -1,34 +1,16 @@
 import { appendFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
+import {
+  parseUtcBusinessDate,
+  resolveBusinessDate,
+  resolveScheduledBusinessDate
+} from "./daily-business-date.mjs";
+
+export { parseUtcBusinessDate, resolveBusinessDate } from "./daily-business-date.mjs";
+
 const ACTIVE_STATUSES = ["queued", "in_progress", "requested", "waiting", "pending"];
 const MANUAL_TITLE = /^Daily manual (\d{4}-\d{2}-\d{2})$/;
-
-export function parseUtcBusinessDate(value) {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value ?? "")) {
-    throw new Error("runDate must use the exact YYYY-MM-DD format");
-  }
-  const parsed = new Date(`${value}T00:00:00.000Z`);
-  if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== value) {
-    throw new Error("runDate must be a valid UTC calendar date");
-  }
-  return value;
-}
-
-export function resolveBusinessDate({ eventName, ref, manualRunDate, now = new Date() }) {
-  if (ref !== "refs/heads/master") {
-    throw new Error("production daily workflow is restricted to the master branch");
-  }
-  if (eventName === "workflow_dispatch") {
-    return parseUtcBusinessDate(manualRunDate);
-  }
-  if (eventName !== "schedule") {
-    throw new Error(`unsupported daily workflow event: ${eventName}`);
-  }
-
-  const todayUtc = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
-  return new Date(todayUtc - 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-}
 
 export function businessDateForActiveRun(run) {
   if (run.head_branch !== "master") return null;
@@ -45,12 +27,7 @@ export function businessDateForActiveRun(run) {
 
   const createdAt = new Date(run.created_at);
   if (Number.isNaN(createdAt.getTime())) return null;
-  const createdDayUtc = Date.UTC(
-    createdAt.getUTCFullYear(),
-    createdAt.getUTCMonth(),
-    createdAt.getUTCDate()
-  );
-  return new Date(createdDayUtc - 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  return resolveScheduledBusinessDate(createdAt);
 }
 
 export function findBlockingActiveRun({ workflowRuns, currentRunId, businessDate }) {
