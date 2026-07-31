@@ -14,6 +14,7 @@
     "prisma:migrate": "prisma migrate dev",
     "check:env": "node scripts/check-env.mjs",
     "job:daily": "node scripts/scheduler-worker.mjs --mode=daily",
+    "job:daily:guard": "tsx scripts/check-daily-workflow-state.ts",
     "job:daily:cloud": "tsx scripts/run-daily-cloud.ts",
     "job:profile:cloud": "tsx scripts/run-profile-cloud.ts",
     "job:monthly-reminder": "node scripts/scheduler-worker.mjs --mode=monthly",

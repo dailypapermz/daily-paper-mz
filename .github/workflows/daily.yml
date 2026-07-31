@@ -101,10 +101,18 @@ jobs:
       - name: Generate PostgreSQL Prisma Client
         run: npm run prisma:cloud:generate
 
+      - name: Check persisted business run before migration
+        id: persisted
+        env:
+          RUN_DATE: ${{ needs.preflight.outputs.run_date }}
+        run: npm run job:daily:guard -- --run-date "$RUN_DATE"
+
       - name: Deploy PostgreSQL migrations
+        if: steps.persisted.outputs.run_migration == 'true'
         run: npm run prisma:cloud:migrate:deploy
 
       - name: Run daily pipeline
+        if: steps.persisted.outputs.run_daily_job == 'true'
         shell: bash
         env:
           RUN_DATE: ${{ needs.preflight.outputs.run_date }}

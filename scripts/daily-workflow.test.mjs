@@ -8,6 +8,11 @@ import {
   resolveBusinessDate,
   runDailyWorkflowGuard
 } from "./daily-workflow-guard.mjs";
+import {
+  buildDailyConcurrencyGroup,
+  buildSkippedDailyNotification,
+  decidePersistedDailyExecution
+} from "./daily-workflow-state.mjs";
 
 const workflow = readFileSync(new URL("../.github/workflows/daily.yml", import.meta.url), "utf8");
 const notificationTestWorkflow = readFileSync(
@@ -24,6 +29,18 @@ const dailyCli = readFileSync(
 );
 const dailyNotificationDelivery = readFileSync(
   new URL("../src/jobs/daily-notification-delivery.ts", import.meta.url),
+  "utf8"
+);
+const persistedDailyGuard = readFileSync(
+  new URL("./check-daily-workflow-state.ts", import.meta.url),
+  "utf8"
+);
+const persistedDailyState = readFileSync(
+  new URL("./daily-workflow-state.mjs", import.meta.url),
+  "utf8"
+);
+const ingestionFoundation = readFileSync(
+  new URL("../src/modules/ingestion/ingestion-foundation.service.ts", import.meta.url),
   "utf8"
 );
 
@@ -44,6 +61,10 @@ test("cloud daily workflow uses least privilege and bounded non-cancelling concu
   assert.match(workflow, /concurrency:[\s\S]*?group: daily-paper-cloud-\$\{\{ github\.repository \}\}-production-\$\{\{ needs\.preflight\.outputs\.run_date \}\}/);
   assert.match(workflow, /cancel-in-progress: false/);
   assert.match(workflow, /queue: max/);
+  assert.ok(
+    workflow.indexOf("concurrency:") < workflow.indexOf("Deploy PostgreSQL migrations"),
+    "the business-date concurrency gate must apply before migration"
+  );
   assert.match(workflow, /runs-on: ubuntu-latest/);
   assert.match(workflow, /environment: production/);
   assert.match(workflow, /timeout-minutes: 120/);
@@ -142,6 +163,124 @@ test("manual preflight returns a safe no-op when the Actions API reports an acti
   });
 });
 
+test("same-date scheduled and manual runs share one gate and only one reaches migration or notification", () => {
+  const scheduledDate = resolveBusinessDate({
+    eventName: "schedule",
+    ref: "refs/heads/master",
+    now: new Date("2026-07-31T00:15:00.000Z")
+  });
+  const manualDate = resolveBusinessDate({
+    eventName: "workflow_dispatch",
+    ref: "refs/heads/master",
+    manualRunDate: "2026-07-30"
+  });
+  const repository = "owner/repo";
+  assert.equal(scheduledDate, manualDate);
+  assert.equal(
+    buildDailyConcurrencyGroup({ repository, businessDate: scheduledDate }),
+    buildDailyConcurrencyGroup({ repository, businessDate: manualDate })
+  );
+  assert.match(
+    ingestionFoundation,
+    /DEFAULT_SOURCES:\s*DailyCandidateSourceValue\[\]\s*=\s*\["biorxiv",\s*"arxiv",\s*"pubmed",\s*"journal"\]/
+  );
+
+  const manualWinner = decidePersistedDailyExecution(null);
+  const scheduledFollower = decidePersistedDailyExecution({
+    id: "run-2026-07-30",
+    pipelineStatus: "COMPLETE",
+    hasNotificationDeliveryStatus: true,
+    notificationDeliveryStatus: "SENT"
+  });
+  assert.deepEqual(manualWinner, {
+    runMigration: true,
+    runDailyJob: true,
+    reason: "new_run"
+  });
+  assert.deepEqual(scheduledFollower, {
+    runMigration: false,
+    runDailyJob: false,
+    reason: "already_sent"
+  });
+  assert.equal([manualWinner, scheduledFollower].filter((run) => run.runMigration).length, 1);
+  assert.equal([manualWinner, scheduledFollower].filter((run) => run.runDailyJob).length, 1);
+  assert.match(workflow, /id: persisted[\s\S]*?job:daily:guard/);
+  assert.match(workflow, /Deploy PostgreSQL migrations\s*\n\s*if: steps\.persisted\.outputs\.run_migration == ["']true["']/);
+  assert.match(workflow, /Run daily pipeline\s*\n\s*if: steps\.persisted\.outputs\.run_daily_job == ["']true["']/);
+});
+
+test("pre-migration skips preserve v0.2.1 notification observability", () => {
+  const sentRun = {
+    id: "run-2026-07-30",
+    pipelineStatus: "COMPLETE",
+    hasNotificationDeliveryStatus: true,
+    notificationDeliveryStatus: "SENT"
+  };
+  assert.deepEqual(buildSkippedDailyNotification({
+    run: sentRun,
+    businessDate: "2026-07-30",
+    reason: "already_sent"
+  }), {
+    event: "daily_notification",
+    runId: "run-2026-07-30",
+    runStatus: "complete",
+    deliveryStatus: "skipped",
+    channel: "none",
+    businessDate: "2026-07-30",
+    reason: "already_sent",
+    deduplicated: true
+  });
+  assert.deepEqual(decidePersistedDailyExecution({
+    ...sentRun,
+    notificationDeliveryStatus: "SENDING"
+  }), {
+    runMigration: false,
+    runDailyJob: false,
+    reason: "delivery_outcome_unknown"
+  });
+  assert.deepEqual(buildSkippedDailyNotification({
+    run: { ...sentRun, notificationDeliveryStatus: "SENDING" },
+    businessDate: "2026-07-30",
+    reason: "delivery_outcome_unknown"
+  }), {
+    event: "daily_notification",
+    runId: "run-2026-07-30",
+    runStatus: "complete",
+    deliveryStatus: "skipped",
+    channel: "none",
+    businessDate: "2026-07-30",
+    reason: "delivery_outcome_unknown",
+    deduplicated: true
+  });
+  assert.match(persistedDailyGuard, /console\.log\(JSON\.stringify\(notification\)\)/);
+  assert.match(persistedDailyState, /event:\s*["']daily_notification["']/);
+});
+
+test("recoverable persisted runs reuse the business run without repeating migration", () => {
+  assert.deepEqual(decidePersistedDailyExecution({
+    id: "run-recoverable",
+    pipelineStatus: "PARTIAL",
+    hasNotificationDeliveryStatus: true,
+    notificationDeliveryStatus: null
+  }), {
+    runMigration: false,
+    runDailyJob: true,
+    reason: "recoverable_run"
+  });
+  assert.deepEqual(decidePersistedDailyExecution({
+    id: "legacy-run-recoverable",
+    pipelineStatus: "PARTIAL",
+    hasNotificationDeliveryStatus: false,
+    notificationDeliveryStatus: null
+  }), {
+    runMigration: true,
+    runDailyJob: true,
+    reason: "legacy_requires_migration"
+  });
+  assert.doesNotMatch(persistedDailyGuard, /error\.message/);
+  assert.match(persistedDailyGuard, /reason:\s*["']persisted_daily_guard_failed["']/);
+});
+
 test("cloud daily workflow fixes cloud capabilities and references secrets symbolically", () => {
   assert.match(workflow, /DEPLOYMENT_MODE: cloud/);
   assert.match(workflow, /ZOTERO_TRANSPORT: web/);
@@ -174,6 +313,7 @@ test("cloud daily workflow migrates before invoking the existing CLI", () => {
     "npm run check:env",
     "npm run prisma:cloud:validate",
     "npm run prisma:cloud:generate",
+    "npm run job:daily:guard",
     "npm run prisma:cloud:migrate:deploy",
     "npm run job:daily:cloud"
   ];
@@ -183,6 +323,7 @@ test("cloud daily workflow migrates before invoking the existing CLI", () => {
     assert.ok(current > previous, `${command} must appear in workflow order`);
     previous = current;
   }
+  assert.doesNotMatch(workflow, /migrate:deploy[\s\S]{0,200}(retry|while|until)/i);
   assert.match(workflow, /npm run job:daily:cloud -- --run-date ["']\$RUN_DATE["']/);
 });
 

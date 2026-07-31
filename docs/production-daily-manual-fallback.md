@@ -1,5 +1,7 @@
 # Production daily manual fallback
 
+> Acceptance closure: UTC business date `2026-07-30` completed successfully. Do not dispatch or restore that date again. The commands below are retained as the audited acceptance record and must be updated to a new approved business date before any future use.
+
 This runbook is for a delayed GitHub scheduled run only. It never accepts a caller-supplied `runId`; the persisted daily pipeline derives and reuses the business run from the UTC business date and the fixed production source set.
 
 ## One-time protection before acceptance
@@ -28,6 +30,7 @@ Expected idempotent outcomes:
 - A recoverable failed, partial, or stale run resumes with its original `runId` and the first incomplete stage.
 - The rerank stage upserts one stable rerank run per business `runId`, replacing that run's result rows rather than creating another recommendation set.
 - A persisted notification state of `SENT` causes later execution of the same `runId` to report `deliveryStatus=skipped`, `reason=already_sent`, and `deduplicated=true` without calling WeCom or SMTP again.
+- The production job's business-date concurrency gate is acquired before any step, including migration. After a queued same-date follower acquires the gate, a persisted-run check runs before `prisma migrate deploy`; terminal `SENT`, `SENDING`, or legacy-suppressed runs emit a bounded `daily_notification` no-op and skip both migration and the daily job.
 - Feed and message preparation completes before notification delivery acquires a persisted `SENDING` claim. If execution then stops after the provider may have accepted the message but before `SENT` is stored, later retries conservatively skip with `reason=delivery_outcome_unknown`; an operator must reconcile that run rather than retry blindly.
 - A provider failure also retains `SENDING`, because acceptance can be ambiguous. Only a configuration-based skip made before any provider attempt releases the claim for a later retry.
 - Terminal runs created before notification state existed are migrated to `LEGACY_SUPPRESSED`; their delivery history is unknowable, so retries conservatively skip notification with `reason=legacy_suppressed` instead of risking a duplicate.

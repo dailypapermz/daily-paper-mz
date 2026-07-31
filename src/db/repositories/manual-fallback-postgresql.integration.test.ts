@@ -12,6 +12,11 @@ import {
   createPrismaDailyNotificationStore,
   type DailyNotificationStoreDatabase
 } from "../../jobs/daily-notification-store";
+import {
+  findPersistedProductionDailyRun,
+  type DailyWorkflowGuardDatabase
+} from "../../jobs/daily-workflow-persisted-guard";
+import { decidePersistedDailyExecution } from "../../../scripts/daily-workflow-state.mjs";
 
 const projectDir = resolve(import.meta.dirname, "../../..");
 const baseUrl = process.env.TEST_POSTGRES_DATABASE_URL?.trim();
@@ -37,6 +42,21 @@ describePostgresql("PostgreSQL manual fallback upgrade and notification claim co
     const legacyClient = new PostgresqlPrismaClient({ datasourceUrl: databaseUrl });
     try {
       await seedLegacyRows(legacyClient);
+      const legacyWorkflowRun = await findPersistedProductionDailyRun(
+        legacyClient as unknown as DailyWorkflowGuardDatabase,
+        "2026-07-29"
+      );
+      expect(legacyWorkflowRun).toMatchObject({
+        id: "legacy-complete",
+        pipelineStatus: "COMPLETE",
+        hasNotificationDeliveryStatus: false,
+        notificationDeliveryStatus: null
+      });
+      expect(decidePersistedDailyExecution(legacyWorkflowRun)).toEqual({
+        runMigration: true,
+        runDailyJob: true,
+        reason: "legacy_requires_migration"
+      });
     } finally {
       await legacyClient.$disconnect();
     }
@@ -100,7 +120,7 @@ describePostgresql("PostgreSQL manual fallback upgrade and notification claim co
       where: { rerankRun: { runId: "legacy-complete" } }
     })).toBe(2);
 
-    const concurrentRunId = await createNotificationFixture(db, "concurrent");
+    const concurrentRunId = await createNotificationFixture(db, "concurrent", "2026-07-31");
     const left = notificationStore(db, concurrentRunId);
     const right = notificationStore(db, concurrentRunId);
     const claims = await Promise.all([left.claim(concurrentRunId), right.claim(concurrentRunId)]);
@@ -119,6 +139,30 @@ describePostgresql("PostgreSQL manual fallback upgrade and notification claim co
       notificationDeliveryStatus: "SENT",
       notificationChannel: "EMAIL",
       notificationSentAt: expect.any(Date)
+    });
+    const persistedWorkflowRun = await findPersistedProductionDailyRun(
+      db as unknown as DailyWorkflowGuardDatabase,
+      "2026-07-31"
+    );
+    expect(persistedWorkflowRun).toMatchObject({
+      id: concurrentRunId,
+      pipelineStatus: "COMPLETE",
+      hasNotificationDeliveryStatus: true,
+      notificationDeliveryStatus: "SENT"
+    });
+    expect(decidePersistedDailyExecution(persistedWorkflowRun)).toEqual({
+      runMigration: false,
+      runDailyJob: false,
+      reason: "already_sent"
+    });
+    expect(decidePersistedDailyExecution({
+      ...persistedWorkflowRun!,
+      pipelineStatus: "PARTIAL",
+      notificationDeliveryStatus: null
+    })).toEqual({
+      runMigration: false,
+      runDailyJob: true,
+      reason: "recoverable_run"
     });
 
     const senderRunId = await createNotificationFixture(db, "single-sender");
@@ -288,16 +332,22 @@ async function seedLegacyRows(db: PostgresqlPrismaClient) {
   `);
 }
 
-async function createNotificationFixture(db: PostgresqlPrismaClient, label: string) {
+async function createNotificationFixture(
+  db: PostgresqlPrismaClient,
+  label: string,
+  businessDate = "2026-07-30"
+) {
   const id = `notification-${label}-${randomBytes(6).toString("hex")}`;
   await db.dailyIngestionRun.create({
     data: {
       id,
-      requestKey: `manual-fallback:${label}:${id}`,
+      requestKey: businessDate === "2026-07-30"
+        ? `manual-fallback:${label}:${id}`
+        : `daily:v1:aggregated:arxiv+biorxiv+journal+pubmed:${businessDate}`,
       source: "AGGREGATED",
       status: "SUCCESS",
       pipelineStatus: "COMPLETE",
-      runDate: new Date("2026-07-30T00:00:00.000Z"),
+      runDate: new Date(`${businessDate}T00:00:00.000Z`),
       finishedAt: new Date("2026-07-31T00:30:00.000Z"),
       pipelineFinishedAt: new Date("2026-07-31T00:30:00.000Z")
     }
