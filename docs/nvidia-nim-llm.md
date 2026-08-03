@@ -47,6 +47,6 @@ For an equivalent local manual check, inject `NVIDIA_API_KEY` into the current p
 
 ## Retry and rollback
 
-Application calls retry only HTTP 429 and recoverable HTTP 500/502/503/504 responses, using bounded backoff up to `LLM_MAX_RETRIES`. Authentication, authorization, HTTP 408, client timeout, other 4xx, and network errors are classified without retry. Batch label validation failures retain the existing per-paper fallback; no retry is unbounded.
+Application calls retry only HTTP 429, recoverable HTTP 500/502/503/504 responses, and NVIDIA gateway HTTP 520-529 responses, using bounded backoff up to `LLM_MAX_RETRIES`. The default is two retries and the client enforces a hard maximum of five; it never retries indefinitely. Authentication, authorization, HTTP 408, client timeout, other 4xx, non-recoverable 5xx, and network errors are classified without retry. Batch label validation failures retain the existing per-paper fallback.
 
 To roll back the generative provider, set `LLM_PROVIDER=openai-compatible`, restore the previous provider's `LLM_API_KEY`, base, and model values, and use `LLM_BASE_URL` (or the deprecated `LLM_API_BASE_URL` fallback). The workflow selects the legacy key for that explicit provider even if `NVIDIA_API_KEY` remains stored. No database migration or data rewrite is involved. Existing generated records retain their stored provider provenance.

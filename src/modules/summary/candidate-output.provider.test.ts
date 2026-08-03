@@ -220,6 +220,17 @@ describe("createCandidateOutputProvider", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it.each([501, 505, 510])("does not retry non-recoverable HTTP %i responses", async (status) => {
+    const fetchMock = vi.fn().mockResolvedValue(statusResponse(status));
+    vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
+
+    await expect(genericProvider({ maxRetries: 3 }).generateLabels(candidateFixture())).rejects.toMatchObject({
+      code: "CANDIDATE_OUTPUT_PROVIDER_HTTP_ERROR",
+      details: { classification: "unexpected_status", status, attempts: 1 }
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("rejects a 202 pending response instead of parsing it", async () => {
     const fetchMock = vi.fn().mockResolvedValue(statusResponse(202));
     vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
@@ -231,7 +242,7 @@ describe("createCandidateOutputProvider", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it.each([429, 500, 502, 503, 504])("retries bounded transient HTTP %i responses", async (status) => {
+  it.each([429, 500, 502, 503, 504, 520, 529])("retries bounded transient HTTP %i responses", async (status) => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(statusResponse(status))
@@ -242,6 +253,63 @@ describe("createCandidateOutputProvider", () => {
     expect(labels.contentRecallLabel).toBe("single-cell atlas");
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
+
+  it("continues bounded retries across NVIDIA gateway 520 and 529 until a success", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(statusResponse(520))
+      .mockResolvedValueOnce(statusResponse(529))
+      .mockResolvedValueOnce(jsonResponse(labelsEnvelope()));
+    vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
+
+    const labels = await genericProvider({ maxRetries: 2 }).generateLabels(candidateFixture());
+    expect(labels.contentRecallLabel).toBe("single-cell atlas");
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("stops retrying NVIDIA gateway errors at the configured limit", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(statusResponse(529));
+    vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
+
+    await expect(genericProvider({ maxRetries: 2 }).generateLabels(candidateFixture())).rejects.toMatchObject({
+      code: "CANDIDATE_OUTPUT_PROVIDER_HTTP_ERROR",
+      details: { classification: "upstream_unavailable", status: 529, attempts: 3, maxRetries: 2 }
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("discards a non-success response body before reporting the failure", async () => {
+    const response = new Response("private provider response", { status: 529 });
+    const cancelSpy = vi.spyOn(response.body!, "cancel");
+    const fetchMock = vi.fn().mockResolvedValue(response);
+    vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
+
+    await expect(genericProvider({ maxRetries: 0 }).generateLabels(candidateFixture())).rejects.toMatchObject({
+      code: "CANDIDATE_OUTPUT_PROVIDER_HTTP_ERROR",
+      details: { status: 529, attempts: 1 }
+    });
+    expect(cancelSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses the default two retries for three total attempts", async () => {
+    const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(statusResponse(529)));
+    vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
+
+    await expect(genericProvider({ maxRetries: undefined }).generateLabels(candidateFixture())).rejects.toMatchObject({
+      details: { status: 529, attempts: 3, maxRetries: 2 }
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("enforces the hard retry cap as six total attempts", async () => {
+    const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(statusResponse(529)));
+    vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
+
+    await expect(genericProvider({ maxRetries: 99 }).generateLabels(candidateFixture())).rejects.toMatchObject({
+      details: { status: 529, attempts: 6, maxRetries: 5 }
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(6);
+  }, 10_000);
 
   it("reports retry exhaustion without exposing response data", async () => {
     const fetchMock = vi.fn().mockResolvedValue(statusResponse(503));
