@@ -74,6 +74,56 @@ test("smoke makes one small non-streaming JSON request and logs only bounded met
   assert.equal(logs[0].includes("not business output"), false);
 });
 
+test("diagnostic mode compares minimal and structured requests with bounded status metadata", async () => {
+  const calls = [];
+  const logs = [];
+  const fetchImpl = async (url, init) => {
+    calls.push([url, init]);
+    if (calls.length === 1) {
+      return new Response(JSON.stringify({
+        choices: [{ message: { content: '{"status":"ok"}' } }]
+      }), { status: 200, headers: { "Content-Type": "application/json" } });
+    }
+    return new Response("private upstream failure", { status: 500 });
+  };
+
+  const result = await runNvidiaSmoke({
+    environment: { ...configuredEnvironment, NVIDIA_SMOKE_DIAGNOSTIC: "true" },
+    fetchImpl,
+    logger: (line) => logs.push(line),
+    now: () => 100
+  });
+
+  assert.equal(result.exitCode, 1);
+  assert.equal(result.diagnostic, true);
+  assert.equal(calls.length, 2);
+  const minimalRequest = JSON.parse(calls[0][1].body);
+  const structuredRequest = JSON.parse(calls[1][1].body);
+  assert.equal(minimalRequest.response_format, undefined);
+  assert.equal(minimalRequest.chat_template_kwargs, undefined);
+  assert.deepEqual(structuredRequest.response_format, { type: "json_object" });
+  assert.deepEqual(structuredRequest.chat_template_kwargs, { thinking: false });
+  assert.equal(logs.length, 2);
+  assert.deepEqual(JSON.parse(logs[0]), {
+    stage: "minimal",
+    model: NVIDIA_NIM_MODEL,
+    httpStatus: 200,
+    httpClassification: "success",
+    latencyMs: 0,
+    jsonValid: true
+  });
+  assert.deepEqual(JSON.parse(logs[1]), {
+    stage: "structured",
+    model: NVIDIA_NIM_MODEL,
+    httpStatus: 500,
+    httpClassification: "server_error",
+    latencyMs: 0,
+    jsonValid: false
+  });
+  assert.equal(logs.join("\n").includes("test-secret"), false);
+  assert.equal(logs.join("\n").includes("private upstream failure"), false);
+});
+
 test("smoke fails before fetch when the key is absent", async () => {
   let calls = 0;
   const logs = [];
@@ -132,6 +182,8 @@ test("manual smoke workflow is isolated from the persisted application", () => {
   assert.match(workflow, /environment: production/);
   assert.match(workflow, /persist-credentials: false/);
   assert.match(workflow, /NVIDIA_API_KEY: \$\{\{ secrets\.NVIDIA_API_KEY \}\}/);
+  assert.match(workflow, /diagnostic:[\s\S]*?type: boolean/);
+  assert.match(workflow, /NVIDIA_SMOKE_DIAGNOSTIC: \$\{\{ inputs\.diagnostic \}\}/);
   assert.match(workflow, /node scripts\/nvidia-llm-smoke\.mjs/);
   for (const forbidden of [
     "DATABASE_URL",
