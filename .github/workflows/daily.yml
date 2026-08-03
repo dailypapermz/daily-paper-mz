@@ -62,8 +62,8 @@ jobs:
       ZOTERO_TRANSPORT: web
       ZOTERO_ID: ${{ secrets.ZOTERO_ID }}
       ZOTERO_KEY: ${{ secrets.ZOTERO_KEY }}
-      LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
-      LLM_API_BASE_URL: ${{ vars.LLM_API_BASE_URL }}
+      LLM_PROVIDER: ${{ vars.LLM_PROVIDER }}
+      LLM_BASE_URL: ${{ vars.LLM_BASE_URL || vars.LLM_API_BASE_URL }}
       LLM_MODEL: ${{ vars.LLM_MODEL }}
       OBSIDIAN_ENABLED: "false"
       SCHEDULER_DESKTOP_NOTIFICATION_ENABLED: "false"
@@ -88,6 +88,26 @@ jobs:
         with:
           node-version: 22
           cache: npm
+
+      - name: Select NVIDIA LLM credential
+        if: env.LLM_PROVIDER == 'nvidia'
+        shell: bash
+        env:
+          SELECTED_LLM_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+        run: |
+          if [[ -z "$SELECTED_LLM_API_KEY" ]]; then
+            echo "::error::Missing required GitHub Secret NVIDIA_API_KEY for LLM_PROVIDER=nvidia."
+            exit 1
+          fi
+          printf '%s=%s\n' LLM_API_KEY "$SELECTED_LLM_API_KEY" >> "$GITHUB_ENV"
+
+      - name: Select legacy OpenAI-compatible LLM credential
+        if: env.LLM_PROVIDER == '' || env.LLM_PROVIDER == 'openai-compatible'
+        shell: bash
+        env:
+          SELECTED_LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+        run: |
+          printf '%s=%s\n' LLM_API_KEY "$SELECTED_LLM_API_KEY" >> "$GITHUB_ENV"
 
       - name: Install locked dependencies
         run: npm ci

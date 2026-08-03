@@ -12,6 +12,14 @@ const validCloudEnv = {
   OBSIDIAN_ENABLED: "false"
 };
 
+const nvidiaCloudEnv = {
+  ...validCloudEnv,
+  LLM_PROVIDER: "nvidia",
+  LLM_API_KEY: "placeholder-llm-key",
+  LLM_BASE_URL: "https://integrate.api.nvidia.com/v1",
+  LLM_MODEL: "deepseek-ai/deepseek-v4-flash"
+};
+
 test("deployment mode defaults to local and rejects unsupported values", () => {
   assert.deepEqual(resolveDeploymentMode({}), { mode: "local" });
   assert.equal(resolveDeploymentMode({ DEPLOYMENT_MODE: "LOCAL" }).mode, "local");
@@ -31,6 +39,110 @@ test("local environment requires SQLite and remains ready without Zotero web cre
     ZOTERO_TRANSPORT: "web"
   });
   assert.ok(incompleteWeb.checks.some((item) => item.level === "error" && item.code === "zotero_web"));
+});
+
+test("local mode keeps NVIDIA generation optional when only the key is absent", () => {
+  const report = inspectRuntimeEnvironment({
+    DATABASE_URL: "file:./dev.db",
+    LLM_PROVIDER: "nvidia",
+    LLM_BASE_URL: "https://integrate.api.nvidia.com/v1",
+    LLM_MODEL: "deepseek-ai/deepseek-v4-flash"
+  });
+
+  assert.equal(report.checks.some((item) => item.level === "error"), false);
+  assert.ok(report.checks.some((item) => item.level === "warn" && item.code === "llm_api_key"));
+});
+
+test("cloud preflight accepts NVIDIA defaults but requires the runtime key name", () => {
+  const defaults = inspectRuntimeEnvironment({
+    ...validCloudEnv,
+    LLM_PROVIDER: "nvidia",
+    LLM_API_KEY: "placeholder-llm-key"
+  });
+  assert.equal(defaults.checks.some((item) => item.level === "error"), false);
+  assert.ok(defaults.checks.some((item) => item.level === "ready" && item.code === "llm"));
+
+  const missingKey = inspectRuntimeEnvironment({
+    ...nvidiaCloudEnv,
+    LLM_API_KEY: ""
+  });
+  const errors = missingKey.checks.filter((item) => item.level === "error" && item.code === "llm_api_key");
+  assert.equal(errors.length, 1);
+  assert.match(errors[0].message, /LLM_API_KEY/);
+  assert.doesNotMatch(errors[0].message, /NVIDIA_API_KEY|placeholder-llm-key/);
+});
+
+test("cloud preflight preserves provider-absent legacy OpenAI-compatible configuration", () => {
+  const report = inspectRuntimeEnvironment({
+    ...validCloudEnv,
+    LLM_API_KEY: "placeholder-legacy-key",
+    LLM_API_BASE_URL: "https://legacy-provider.example.invalid/v1",
+    LLM_MODEL: "legacy-provider/model"
+  });
+
+  assert.equal(report.checks.some((item) => item.level === "error"), false);
+  assert.ok(report.checks.some((item) => item.level === "ready" && item.code === "llm"));
+});
+
+test("cloud preflight normalizes NVIDIA slashes and gives the canonical name precedence", () => {
+  const accepted = inspectRuntimeEnvironment({
+    ...nvidiaCloudEnv,
+    LLM_BASE_URL: "https://integrate.api.nvidia.com/v1///",
+    LLM_API_BASE_URL: "https://legacy.example.invalid/v1"
+  });
+  assert.equal(accepted.checks.some((item) => item.level === "error"), false);
+
+  const rejected = inspectRuntimeEnvironment({
+    ...nvidiaCloudEnv,
+    LLM_BASE_URL: "https://canonical-wrong.example.invalid/v1",
+    LLM_API_BASE_URL: "https://integrate.api.nvidia.com/v1"
+  });
+  assert.ok(rejected.checks.some((item) => item.level === "error" && item.code === "llm_base_url"));
+});
+
+test("cloud preflight rejects wrong NVIDIA model/base without printing configured values", () => {
+  const output = [];
+  const secret = "do-not-print-provider-secret";
+  const privateBase = "https://private-provider.example.invalid/v1";
+  const result = runCheckEnv({
+    environment: {
+      ...nvidiaCloudEnv,
+      LLM_API_KEY: secret,
+      LLM_BASE_URL: privateBase,
+      LLM_MODEL: "deepseek-v4-flash"
+    },
+    logger: (line) => output.push(line),
+    errorLogger: (line) => output.push(line)
+  });
+
+  assert.equal(result.exitCode, 1);
+  assert.ok(result.checks.some((item) => item.code === "llm_base_url"));
+  assert.ok(result.checks.some((item) => item.code === "llm_model"));
+  assert.equal(output.join("\n").includes(secret), false);
+  assert.equal(output.join("\n").includes(privateBase), false);
+});
+
+test("preflight rejects unsafe canonical and legacy base URLs without echoing credentials", () => {
+  for (const key of ["LLM_BASE_URL", "LLM_API_BASE_URL"]) {
+    const output = [];
+    const unsafeUrl = "https://user:private-password@example.invalid/v1?token=private-token#fragment";
+    const result = runCheckEnv({
+      environment: {
+        ...validCloudEnv,
+        LLM_PROVIDER: "openai-compatible",
+        LLM_API_KEY: "placeholder-key",
+        [key]: unsafeUrl
+      },
+      logger: (line) => output.push(line),
+      errorLogger: (line) => output.push(line)
+    });
+
+    assert.equal(result.exitCode, 1);
+    assert.ok(result.checks.some((item) => item.code === "llm_base_url"));
+    assert.equal(output.join("\n").includes(unsafeUrl), false);
+    assert.equal(output.join("\n").includes("private-password"), false);
+    assert.equal(output.join("\n").includes("private-token"), false);
+  }
 });
 
 test("cloud preflight enforces PostgreSQL, Zotero web, and local capability gates", () => {

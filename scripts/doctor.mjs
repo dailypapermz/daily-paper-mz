@@ -11,6 +11,9 @@ import {
   resolveDeploymentMode
 } from "./check-env.mjs";
 
+const NVIDIA_NIM_BASE_URL = "https://integrate.api.nvidia.com/v1";
+const NVIDIA_NIM_MODEL = "deepseek-ai/deepseek-v4-flash";
+
 function check(level, code, message) {
   return { level, code, message };
 }
@@ -37,6 +40,78 @@ function validateInteger(checks, env, key, code, minimum, maximum, fallback) {
     return;
   }
   checks.push(check("ready", code, `${key} is in range.`));
+}
+
+function normalizedBaseUrl(value) {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed.replace(/\/+$/, "") : undefined;
+}
+
+function isSafeBaseUrl(value) {
+  const trimmed = value?.trim();
+  if (!trimmed) return true;
+  try {
+    const parsed = new URL(trimmed);
+    return (
+      (parsed.protocol === "https:" || parsed.protocol === "http:") &&
+      !parsed.username &&
+      !parsed.password &&
+      !trimmed.includes("?") &&
+      !trimmed.includes("#")
+    );
+  } catch {
+    return false;
+  }
+}
+
+function validateLlm(checks, env) {
+  const rawProvider = env.LLM_PROVIDER?.trim().toLowerCase();
+  const provider = rawProvider || undefined;
+  const baseUrl = normalizedBaseUrl(env.LLM_BASE_URL) ?? normalizedBaseUrl(env.LLM_API_BASE_URL);
+  const model = env.LLM_MODEL?.trim() || undefined;
+  const hasKey = hasValue(env, "LLM_API_KEY");
+
+  const unsafeKeys = ["LLM_BASE_URL", "LLM_API_BASE_URL"].filter(
+    (key) => hasValue(env, key) && !isSafeBaseUrl(env[key])
+  );
+  if (unsafeKeys.length > 0) {
+    for (const key of unsafeKeys) {
+      checks.push(check("error", "llm", `${key} must be an HTTP(S) URL without credentials, query parameters, or fragments.`));
+    }
+    return;
+  }
+
+  if (provider && provider !== "nvidia" && provider !== "openai-compatible") {
+    checks.push(check("error", "llm", "LLM_PROVIDER must be nvidia or openai-compatible."));
+    return;
+  }
+
+  if (provider === "nvidia") {
+    const effectiveBaseUrl = baseUrl ?? NVIDIA_NIM_BASE_URL;
+    const effectiveModel = model ?? NVIDIA_NIM_MODEL;
+    let valid = true;
+    if (effectiveBaseUrl !== NVIDIA_NIM_BASE_URL) {
+      checks.push(check("error", "llm", "NVIDIA LLM requires the hosted NVIDIA NIM base URL."));
+      valid = false;
+    }
+    if (effectiveModel !== NVIDIA_NIM_MODEL) {
+      checks.push(check("error", "llm", `NVIDIA LLM requires LLM_MODEL=${NVIDIA_NIM_MODEL}.`));
+      valid = false;
+    }
+    if (!valid) return;
+    checks.push(hasKey
+      ? check("ready", "llm", "NVIDIA LLM configuration is complete.")
+      : check("warn", "llm", "NVIDIA LLM API key is not configured (optional)."));
+    return;
+  }
+
+  if (!hasKey && !baseUrl) {
+    checks.push(check("warn", "llm", "LLM provider is not configured (optional)."));
+  } else if (!hasKey || !baseUrl) {
+    checks.push(check("error", "llm", "LLM provider must include an API key and base URL."));
+  } else {
+    checks.push(check("ready", "llm", "LLM provider configuration is complete."));
+  }
 }
 
 export async function inspectProject({
@@ -105,7 +180,7 @@ export async function inspectProject({
     }
   }
 
-  validatePair(checks, env, "llm", "LLM provider", ["LLM_API_KEY", "LLM_API_BASE_URL"]);
+  validateLlm(checks, env);
   const embeddingRequested = [
     "EMBEDDING_API_KEY",
     "EMBEDDING_API_BASE_URL",

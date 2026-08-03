@@ -1,8 +1,13 @@
 import { AppError } from "../../lib/errors";
-import { fetchWithRetry } from "../ingestion/http";
+import {
+  NVIDIA_NIM_BASE_URL,
+  NVIDIA_NIM_MODEL,
+  type LlmProvider
+} from "../../lib/config/llm";
 import type { CandidateGeneratedOutput, CandidateOutputProvider } from "./types";
 
 type GenericLlmProviderOptions = {
+  provider?: LlmProvider;
   apiKey: string;
   apiBaseUrl: string;
   model?: string;
@@ -38,7 +43,8 @@ export class UnavailableCandidateOutputProvider implements CandidateOutputProvid
 }
 
 export class GenericLlmCandidateOutputProvider implements CandidateOutputProvider {
-  readonly name = "generic-llm";
+  readonly name: "generic-llm" | "nvidia-nim";
+  private readonly provider: LlmProvider;
   private readonly endpoint: string;
   private readonly model: string;
   private readonly timeoutMs: number;
@@ -46,10 +52,12 @@ export class GenericLlmCandidateOutputProvider implements CandidateOutputProvide
   private readonly concurrency: number;
 
   constructor(private readonly options: GenericLlmProviderOptions) {
+    this.provider = options.provider ?? "openai-compatible";
+    this.name = this.provider === "nvidia" ? "nvidia-nim" : "generic-llm";
     this.endpoint = options.apiBaseUrl.replace(/\/+$/, "");
-    this.model = options.model ?? "gpt-4o-mini";
+    this.model = options.model ?? (this.provider === "nvidia" ? NVIDIA_NIM_MODEL : "gpt-4o-mini");
     this.timeoutMs = options.timeoutMs ?? 30_000;
-    this.maxRetries = options.maxRetries ?? 2;
+    this.maxRetries = normalizeMaxRetries(options.maxRetries);
     this.concurrency = options.concurrency ?? 4;
   }
 
@@ -97,51 +105,38 @@ export class GenericLlmCandidateOutputProvider implements CandidateOutputProvide
   }
 
   private async requestJson(prompt: string): Promise<unknown> {
-
-    let response: Response;
-    try {
-      response = await fetchWithRetry(
-        `${this.endpoint}/chat/completions`,
+    const body = {
+      model: this.model,
+      messages: [
         {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${this.options.apiKey}`
-          },
-          body: JSON.stringify({
-            model: this.model,
-            messages: [
-              {
-                role: "system",
-                content:
-                  "Return only valid JSON. Keep wording concise, factual, and suitable for later user editing."
-              },
-              { role: "user", content: prompt }
-            ],
-            temperature: 0.2,
-            response_format: { type: "json_object" }
-          })
+          role: "system",
+          content:
+            "Return only valid JSON. Keep wording concise, factual, and suitable for later user editing."
         },
-        { timeoutMs: this.timeoutMs, maxRetries: this.maxRetries }
-      );
-    } catch (error) {
-      throw new AppError(
-        "CANDIDATE_OUTPUT_PROVIDER_REQUEST_FAILED",
-        `Candidate output provider request failed after ${this.maxRetries + 1} attempt(s): ${
-          error instanceof Error ? error.message : "unknown network error"
-        }`,
-        502,
-        { timeoutMs: this.timeoutMs, maxRetries: this.maxRetries }
-      );
-    }
-
-    if (!response.ok) {
-      throw new AppError(
-        "CANDIDATE_OUTPUT_PROVIDER_ERROR",
-        `Candidate output generation failed with status ${response.status}`,
-        502
-      );
-    }
+        { role: "user", content: prompt }
+      ],
+      temperature: 0.2,
+      stream: false,
+      response_format: { type: "json_object" },
+      ...(this.provider === "nvidia"
+        ? { chat_template_kwargs: { thinking: false } }
+        : {})
+    };
+    const response = await fetchLlmCompletion(
+      `${this.endpoint}/chat/completions`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${this.options.apiKey}`
+        },
+        body: JSON.stringify(body)
+      },
+      {
+        timeoutMs: this.timeoutMs,
+        maxRetries: this.maxRetries
+      }
+    );
 
     const payload = await response.json().catch(() => {
       throw providerSchemaError("response", "must be valid JSON");
@@ -171,6 +166,7 @@ export class GenericLlmCandidateOutputProvider implements CandidateOutputProvide
 }
 
 export function createCandidateOutputProvider(input: {
+  provider?: LlmProvider;
   apiKey?: string;
   apiBaseUrl?: string;
   model?: string;
@@ -178,17 +174,30 @@ export function createCandidateOutputProvider(input: {
   maxRetries?: number;
   concurrency?: number;
 }): CandidateOutputProvider {
+  const provider = input.provider ?? "openai-compatible";
   const apiKey = input.apiKey?.trim();
-  const apiBaseUrl = input.apiBaseUrl?.trim();
+  const apiBaseUrl = input.apiBaseUrl?.trim() || (provider === "nvidia" ? NVIDIA_NIM_BASE_URL : undefined);
   const model = input.model?.trim();
 
   if (!apiKey || !apiBaseUrl) {
+    const missing = [
+      ...(!apiKey ? ["LLM_API_KEY"] : []),
+      ...(!apiBaseUrl ? ["LLM_BASE_URL"] : [])
+    ];
     return new UnavailableCandidateOutputProvider(
-      "LLM configuration is missing. Set LLM_API_KEY and LLM_API_BASE_URL."
+      `LLM configuration is missing: ${missing.join(", ")}.`
     );
   }
 
+  if (
+    provider === "nvidia" &&
+    (apiBaseUrl.replace(/\/+$/, "") !== NVIDIA_NIM_BASE_URL || (model && model !== NVIDIA_NIM_MODEL))
+  ) {
+    return new UnavailableCandidateOutputProvider("NVIDIA NIM configuration is invalid.");
+  }
+
   return new GenericLlmCandidateOutputProvider({
+    provider,
     apiKey,
     apiBaseUrl,
     model: model || undefined,
@@ -196,6 +205,115 @@ export function createCandidateOutputProvider(input: {
     maxRetries: input.maxRetries,
     concurrency: input.concurrency
   });
+}
+
+type LlmRequestOptions = {
+  timeoutMs: number;
+  maxRetries: number;
+};
+
+const RETRYABLE_LLM_STATUS_CODES = new Set([429, 500, 502, 503, 504]);
+const MAX_LLM_RETRIES = 5;
+const LLM_RETRY_BACKOFF_MS = 250;
+
+async function fetchLlmCompletion(
+  endpoint: string,
+  init: RequestInit,
+  options: LlmRequestOptions
+): Promise<Response> {
+  for (let attempt = 0; attempt <= options.maxRetries; attempt += 1) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), options.timeoutMs);
+    let response: Response;
+
+    try {
+      response = await fetch(endpoint, { ...init, signal: controller.signal });
+    } catch (error) {
+      clearTimeout(timeout);
+      if (controller.signal.aborted || isAbortError(error)) {
+        throw providerRequestError("timeout", attempt + 1, options);
+      }
+      throw providerRequestError("network", attempt + 1, options);
+    }
+    clearTimeout(timeout);
+
+    if (response.status === 200) {
+      return response;
+    }
+
+    if (RETRYABLE_LLM_STATUS_CODES.has(response.status) && attempt < options.maxRetries) {
+      await waitForRetry(LLM_RETRY_BACKOFF_MS * (attempt + 1));
+      continue;
+    }
+
+    throw providerStatusError(response.status, attempt + 1, options);
+  }
+
+  throw providerRequestError("retry_exhausted", options.maxRetries + 1, options);
+}
+
+function providerStatusError(status: number, attempts: number, options: LlmRequestOptions) {
+  const classification =
+    status === 202
+      ? "pending_response"
+      : status === 401
+        ? "authentication_failed"
+        : status === 403
+          ? "authorization_failed"
+          : status === 408
+            ? "request_timeout_status"
+            : status === 429
+              ? "rate_limited"
+              : RETRYABLE_LLM_STATUS_CODES.has(status)
+                ? "upstream_unavailable"
+                : status >= 400 && status < 500
+                  ? "request_rejected"
+                  : "unexpected_status";
+
+  return new AppError(
+    "CANDIDATE_OUTPUT_PROVIDER_HTTP_ERROR",
+    `Candidate output provider request failed (${classification}).`,
+    502,
+    {
+      classification,
+      status,
+      attempts,
+      timeoutMs: options.timeoutMs,
+      maxRetries: options.maxRetries
+    }
+  );
+}
+
+function providerRequestError(
+  classification: "timeout" | "network" | "retry_exhausted",
+  attempts: number,
+  options: LlmRequestOptions
+) {
+  return new AppError(
+    "CANDIDATE_OUTPUT_PROVIDER_REQUEST_FAILED",
+    `Candidate output provider request failed (${classification}).`,
+    502,
+    {
+      classification,
+      attempts,
+      timeoutMs: options.timeoutMs,
+      maxRetries: options.maxRetries
+    }
+  );
+}
+
+function isAbortError(error: unknown) {
+  return error instanceof DOMException && error.name === "AbortError";
+}
+
+function waitForRetry(milliseconds: number) {
+  return new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
+}
+
+function normalizeMaxRetries(value?: number) {
+  if (value === undefined) return 2;
+  if (!Number.isInteger(value) || value < 0) return 0;
+  return Math.min(value, MAX_LLM_RETRIES);
 }
 
 function buildContext(input: {
@@ -464,8 +582,42 @@ function extractProviderContent(value: unknown) {
     throw providerSchemaError("response.choices", "must contain at least one choice");
   }
   const choice = requireLooseObject(payload.choices[0], "response.choices[0]");
+  inspectFinishReason(choice.finish_reason);
+  inspectUsage(payload.usage);
   const message = requireLooseObject(choice.message, "response.choices[0].message");
+  inspectIgnoredReasoningField(message.reasoning, "response.choices[0].message.reasoning");
+  inspectIgnoredReasoningField(
+    message.reasoning_content,
+    "response.choices[0].message.reasoning_content"
+  );
   return requireNonEmptyString(message.content, "response.choices[0].message.content");
+}
+
+function inspectIgnoredReasoningField(value: unknown, path: string) {
+  if (value === undefined || value === null || typeof value === "string") return;
+  throw providerSchemaError(path, "must be a string, null, or omitted");
+}
+
+function inspectFinishReason(value: unknown) {
+  if (value === undefined || value === null || value === "stop") return;
+  if (typeof value !== "string") {
+    throw providerSchemaError("response.choices[0].finish_reason", "must be a string, null, or omitted");
+  }
+  throw providerSchemaError(
+    "response.choices[0].finish_reason",
+    "must be stop for a complete structured response"
+  );
+}
+
+function inspectUsage(value: unknown) {
+  if (value === undefined) return;
+  const usage = requireLooseObject(value, "response.usage");
+  for (const key of ["prompt_tokens", "completion_tokens", "total_tokens"]) {
+    const count = usage[key];
+    if (count !== undefined && (!Number.isInteger(count) || (count as number) < 0)) {
+      throw providerSchemaError(`response.usage.${key}`, "must be a non-negative integer when provided");
+    }
+  }
 }
 
 function requireObject(value: unknown, path: string, expectedKeys: string[]) {

@@ -1,3 +1,9 @@
+import {
+  NVIDIA_NIM_BASE_URL,
+  NVIDIA_NIM_MODEL,
+  type LlmProvider
+} from "./llm";
+
 export class EnvValidationError extends Error {
   missingKeys: string[];
   issues: string[];
@@ -36,7 +42,10 @@ export type AppEnv = {
   ZOTERO_ID?: string;
   ZOTERO_TRANSPORT: "local" | "web" | "auto";
   ZOTERO_LOCAL_API_URL: string;
+  LLM_PROVIDER?: LlmProvider;
   LLM_API_KEY?: string;
+  LLM_BASE_URL?: string;
+  /** @deprecated Use LLM_BASE_URL. */
   LLM_API_BASE_URL?: string;
   LLM_MODEL?: string;
   LLM_TIMEOUT_MS: number;
@@ -115,6 +124,13 @@ export function loadEnv(rawEnv: EnvironmentInput = process.env): AppEnv {
 
   const zoteroKey = rawEnv.ZOTERO_KEY?.trim() || undefined;
   const zoteroId = rawEnv.ZOTERO_ID?.trim() || undefined;
+  const llmProvider = parseLlmProvider(rawEnv.LLM_PROVIDER, issues);
+  validateLlmBaseUrl(rawEnv.LLM_BASE_URL, "LLM_BASE_URL", issues);
+  validateLlmBaseUrl(rawEnv.LLM_API_BASE_URL, "LLM_API_BASE_URL", issues);
+  const llmBaseUrl = normalizeBaseUrl(
+    rawEnv.LLM_BASE_URL?.trim() || rawEnv.LLM_API_BASE_URL?.trim() || undefined
+  );
+  const llmModel = rawEnv.LLM_MODEL?.trim() || undefined;
   if (zoteroTransport === "web" && (!zoteroKey || !zoteroId)) {
     issues.push("ZOTERO_TRANSPORT=web requires ZOTERO_KEY and ZOTERO_ID");
   }
@@ -123,6 +139,22 @@ export function loadEnv(rawEnv: EnvironmentInput = process.env): AppEnv {
       issues.push("Cloud Mode requires ZOTERO_TRANSPORT=web");
     }
     validateCloudLocalCapabilities(rawEnv, issues);
+  }
+
+  const resolvedLlmBaseUrl = llmProvider === "nvidia"
+    ? llmBaseUrl ?? NVIDIA_NIM_BASE_URL
+    : llmBaseUrl;
+  const resolvedLlmModel = llmProvider === "nvidia"
+    ? llmModel ?? NVIDIA_NIM_MODEL
+    : llmModel;
+
+  if (llmProvider === "nvidia") {
+    if (resolvedLlmBaseUrl !== NVIDIA_NIM_BASE_URL) {
+      issues.push("LLM_PROVIDER=nvidia requires the NVIDIA NIM hosted LLM_BASE_URL");
+    }
+    if (resolvedLlmModel !== NVIDIA_NIM_MODEL) {
+      issues.push(`LLM_PROVIDER=nvidia requires LLM_MODEL=${NVIDIA_NIM_MODEL}`);
+    }
   }
 
   if (issues.length > 0) {
@@ -137,9 +169,11 @@ export function loadEnv(rawEnv: EnvironmentInput = process.env): AppEnv {
     ZOTERO_ID: zoteroId,
     ZOTERO_TRANSPORT: zoteroTransport,
     ZOTERO_LOCAL_API_URL: rawEnv.ZOTERO_LOCAL_API_URL?.trim() || "http://127.0.0.1:23119/api",
-    LLM_API_KEY: rawEnv.LLM_API_KEY,
-    LLM_API_BASE_URL: rawEnv.LLM_API_BASE_URL,
-    LLM_MODEL: rawEnv.LLM_MODEL,
+    LLM_PROVIDER: llmProvider,
+    LLM_API_KEY: rawEnv.LLM_API_KEY?.trim() || undefined,
+    LLM_BASE_URL: resolvedLlmBaseUrl,
+    LLM_API_BASE_URL: resolvedLlmBaseUrl,
+    LLM_MODEL: resolvedLlmModel,
     LLM_TIMEOUT_MS: parsePositiveInteger(rawEnv.LLM_TIMEOUT_MS, 30_000),
     LLM_MAX_RETRIES: parseNonNegativeInteger(rawEnv.LLM_MAX_RETRIES, 2),
     LLM_CONCURRENCY: parsePositiveInteger(rawEnv.LLM_CONCURRENCY, 4),
@@ -184,6 +218,43 @@ function parseZoteroTransport(
   if (normalized === "local" || normalized === "web") return normalized;
   issues.push("ZOTERO_TRANSPORT must be local, web, or auto");
   return "auto";
+}
+
+function parseLlmProvider(value: string | undefined, issues: string[]): LlmProvider | undefined {
+  const normalized = value?.trim().toLowerCase();
+  if (!normalized) return undefined;
+  if (normalized === "nvidia" || normalized === "openai-compatible") return normalized;
+  issues.push("LLM_PROVIDER must be nvidia or openai-compatible");
+  return undefined;
+}
+
+function normalizeBaseUrl(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  return value.replace(/\/+$/, "") || undefined;
+}
+
+function validateLlmBaseUrl(
+  value: string | undefined,
+  key: "LLM_BASE_URL" | "LLM_API_BASE_URL",
+  issues: string[]
+): void {
+  const trimmed = value?.trim();
+  if (!trimmed) return;
+
+  try {
+    const parsed = new URL(trimmed);
+    if (
+      (parsed.protocol !== "https:" && parsed.protocol !== "http:") ||
+      parsed.username ||
+      parsed.password ||
+      trimmed.includes("?") ||
+      trimmed.includes("#")
+    ) {
+      throw new Error("unsafe URL");
+    }
+  } catch {
+    issues.push(`${key} must be an HTTP(S) URL without credentials, query parameters, or fragments`);
+  }
 }
 
 function validateCloudLocalCapabilities(rawEnv: EnvironmentInput, issues: string[]): void {

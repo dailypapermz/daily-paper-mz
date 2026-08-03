@@ -3,6 +3,9 @@ import { fileURLToPath } from "node:url";
 
 import dotenv from "dotenv";
 
+const NVIDIA_NIM_BASE_URL = "https://integrate.api.nvidia.com/v1";
+const NVIDIA_NIM_MODEL = "deepseek-ai/deepseek-v4-flash";
+
 function result(level, code, message) {
   return { level, code, message };
 }
@@ -29,6 +32,82 @@ export function resolveDeploymentMode(env) {
   };
 }
 
+function normalizeBaseUrl(value) {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed.replace(/\/+$/, "") : undefined;
+}
+
+function isSafeBaseUrl(value) {
+  const trimmed = value?.trim();
+  if (!trimmed) return true;
+  try {
+    const parsed = new URL(trimmed);
+    return (
+      (parsed.protocol === "https:" || parsed.protocol === "http:") &&
+      !parsed.username &&
+      !parsed.password &&
+      !trimmed.includes("?") &&
+      !trimmed.includes("#")
+    );
+  } catch {
+    return false;
+  }
+}
+
+function inspectLlmEnvironment(env, mode) {
+  const checks = [];
+  const provider = env.LLM_PROVIDER?.trim().toLowerCase() || undefined;
+  const canonicalBaseUrl = normalizeBaseUrl(env.LLM_BASE_URL);
+  const legacyBaseUrl = normalizeBaseUrl(env.LLM_API_BASE_URL);
+  const baseUrl = canonicalBaseUrl ?? legacyBaseUrl;
+  const model = env.LLM_MODEL?.trim() || undefined;
+  const hasKey = hasValue(env, "LLM_API_KEY");
+  const configured = Boolean(provider || hasKey || baseUrl);
+
+  for (const key of ["LLM_BASE_URL", "LLM_API_BASE_URL"]) {
+    if (hasValue(env, key) && !isSafeBaseUrl(env[key])) {
+      checks.push(result("error", "llm_base_url", `${key} must be an HTTP(S) URL without credentials, query parameters, or fragments.`));
+    }
+  }
+  if (checks.length > 0) return checks;
+
+  if (provider && provider !== "nvidia" && provider !== "openai-compatible") {
+    return [result("error", "llm_provider", "LLM_PROVIDER must be nvidia or openai-compatible.")];
+  }
+  if (!configured) return checks;
+
+  if (provider === "nvidia") {
+    const effectiveBaseUrl = baseUrl ?? NVIDIA_NIM_BASE_URL;
+    const effectiveModel = model ?? NVIDIA_NIM_MODEL;
+    if (effectiveBaseUrl !== NVIDIA_NIM_BASE_URL) {
+      checks.push(result("error", "llm_base_url", "LLM_PROVIDER=nvidia requires the hosted NVIDIA NIM LLM_BASE_URL."));
+    }
+    if (effectiveModel !== NVIDIA_NIM_MODEL) {
+      checks.push(result("error", "llm_model", `LLM_PROVIDER=nvidia requires LLM_MODEL=${NVIDIA_NIM_MODEL}.`));
+    }
+    if (!hasKey) {
+      checks.push(mode === "cloud"
+        ? result("error", "llm_api_key", "Cloud mode LLM configuration is missing: LLM_API_KEY.")
+        : result("warn", "llm_api_key", "LLM_API_KEY is not configured; local LLM generation remains optional."));
+    }
+    if (checks.every((item) => item.level !== "error") && hasKey) {
+      checks.push(result("ready", "llm", "NVIDIA LLM configuration is complete."));
+    }
+    return checks;
+  }
+
+  const missing = [
+    !hasKey ? "LLM_API_KEY" : undefined,
+    !baseUrl ? "LLM_BASE_URL" : undefined
+  ].filter(Boolean);
+  if (missing.length > 0) {
+    checks.push(result("error", "llm", `${mode === "cloud" ? "Cloud mode LLM" : "LLM"} configuration is missing: ${missing.join(", ")}.`));
+  } else {
+    checks.push(result("ready", "llm", "OpenAI-compatible LLM configuration is complete."));
+  }
+  return checks;
+}
+
 export function inspectRuntimeEnvironment(env) {
   const checks = [];
   const deployment = resolveDeploymentMode(env);
@@ -50,6 +129,8 @@ export function inspectRuntimeEnvironment(env) {
   } else {
     checks.push(result("ready", "database_url", `${mode === "local" ? "SQLite" : "PostgreSQL"} database URL format is valid.`));
   }
+
+  checks.push(...inspectLlmEnvironment(env, mode));
 
   const transport = env.ZOTERO_TRANSPORT?.trim().toLowerCase() || "auto";
   if (!["local", "web", "auto"].includes(transport)) {
