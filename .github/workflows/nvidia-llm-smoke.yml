@@ -18,12 +18,11 @@ concurrency:
 
 jobs:
   smoke:
-    name: Validate one isolated NVIDIA chat completion
+    name: Validate isolated NVIDIA chat completions
     runs-on: ubuntu-latest
     environment: production
     timeout-minutes: 5
     env:
-      NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
       LLM_BASE_URL: ${{ vars.LLM_BASE_URL }}
       LLM_MODEL: ${{ vars.LLM_MODEL }}
       NVIDIA_SMOKE_DIAGNOSTIC: ${{ inputs.diagnostic }}
@@ -39,5 +38,7 @@ jobs:
         with:
           node-version: 22
 
-      - name: Send one fixed structured-output prompt
+      - name: Run bounded NVIDIA smoke or diagnostic
+        env:
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
         run: node scripts/nvidia-llm-smoke.mjs

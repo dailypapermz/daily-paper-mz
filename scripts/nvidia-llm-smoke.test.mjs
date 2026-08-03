@@ -182,6 +182,13 @@ test("manual smoke workflow is isolated from the persisted application", () => {
   assert.match(workflow, /environment: production/);
   assert.match(workflow, /persist-credentials: false/);
   assert.match(workflow, /NVIDIA_API_KEY: \$\{\{ secrets\.NVIDIA_API_KEY \}\}/);
+  const stepsIndex = workflow.indexOf("\n    steps:");
+  assert.ok(stepsIndex > 0);
+  assert.doesNotMatch(workflow.slice(0, stepsIndex), /NVIDIA_API_KEY/);
+  assert.match(
+    workflow.slice(stepsIndex),
+    /name: Run bounded NVIDIA smoke or diagnostic[\s\S]*?env:\s*\n\s+NVIDIA_API_KEY: \$\{\{ secrets\.NVIDIA_API_KEY \}\}/
+  );
   assert.match(workflow, /diagnostic:[\s\S]*?type: boolean/);
   assert.match(workflow, /NVIDIA_SMOKE_DIAGNOSTIC: \$\{\{ inputs\.diagnostic \}\}/);
   assert.match(workflow, /node scripts\/nvidia-llm-smoke\.mjs/);
