@@ -26,8 +26,9 @@ export function createCandidateOutputService(
   const resolvedProvider =
     provider ??
     createCandidateOutputProvider({
+      provider: env.LLM_PROVIDER,
       apiKey: env.LLM_API_KEY,
-      apiBaseUrl: env.LLM_API_BASE_URL,
+      apiBaseUrl: env.LLM_BASE_URL,
       model: env.LLM_MODEL,
       timeoutMs: env.LLM_TIMEOUT_MS,
       maxRetries: env.LLM_MAX_RETRIES,

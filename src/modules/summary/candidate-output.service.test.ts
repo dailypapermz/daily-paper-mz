@@ -255,6 +255,52 @@ describe("DefaultCandidateOutputService", () => {
     expect(result).toMatchObject({ requested: 2, generated: 2, failed: 0 });
   });
 
+  it("preserves partial persistence semantics when NVIDIA batch fallback has an isolated failure", async () => {
+    const candidates = [
+      { candidateId: "candidate-1", runId: "run-1", canonicalKey: "canon-1", sourceProvenance: [] },
+      { candidateId: "candidate-2", runId: "run-1", canonicalKey: "canon-2", sourceProvenance: [] }
+    ];
+    const repository = {
+      listCandidatesForGeneration: vi.fn().mockResolvedValue(candidates),
+      saveGeneratedOutput: vi.fn(),
+      saveGeneratedLabels: vi.fn(),
+      saveGeneratedSummary: vi.fn(),
+      saveUserCorrectedOutput: vi.fn(),
+      listRunOutputs: vi.fn().mockResolvedValue([]),
+      listRunOutputsByCandidateId: vi.fn()
+    };
+    const provider = {
+      name: "nvidia-nim",
+      getHealth: () => ({ name: "nvidia-nim", status: "ready" as const }),
+      generateLabelsBatch: vi.fn().mockRejectedValue(new Error("batch response invalid")),
+      generateLabels: vi
+        .fn()
+        .mockResolvedValueOnce({ contentRecallLabel: "validated fallback" })
+        .mockRejectedValueOnce(new Error("individual response invalid")),
+      generateSummary: vi.fn(),
+      generateOutput: vi.fn()
+    };
+
+    const result = await new DefaultCandidateOutputService(repository, provider).generateLabelsForRun({
+      runId: "run-1"
+    });
+
+    expect(provider.generateLabelsBatch).toHaveBeenCalledTimes(1);
+    expect(provider.generateLabels).toHaveBeenCalledTimes(2);
+    expect(repository.saveGeneratedLabels).toHaveBeenCalledTimes(1);
+    expect(repository.saveGeneratedLabels).toHaveBeenCalledWith({
+      candidateId: "candidate-1",
+      provider: "nvidia-nim",
+      labels: { contentRecallLabel: "validated fallback" }
+    });
+    expect(result).toMatchObject({
+      provider: "nvidia-nim",
+      requested: 2,
+      generated: 1,
+      failed: 1
+    });
+  });
+
   it("generates summaries only for selected top candidates by default", async () => {
     const repository = {
       listCandidatesForGeneration: vi.fn().mockResolvedValue([]),

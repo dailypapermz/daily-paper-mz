@@ -298,12 +298,20 @@ test("cloud daily workflow fixes cloud capabilities and references secrets symbo
   assert.match(workflow, /OBSIDIAN_ENABLED: ["']false["']/);
   assert.match(workflow, /SCHEDULER_DESKTOP_NOTIFICATION_ENABLED: ["']false["']/);
 
-  for (const name of ["DATABASE_URL", "ZOTERO_ID", "ZOTERO_KEY", "LLM_API_KEY"]) {
+  for (const name of ["DATABASE_URL", "ZOTERO_ID", "ZOTERO_KEY"]) {
     assert.match(workflow, new RegExp(`\\$\\{\\{ secrets\\.${name} \\}\\}`));
   }
-  for (const name of ["LLM_MODEL", "LLM_API_BASE_URL", "NOTIFICATION_DASHBOARD_URL"]) {
+  for (const name of ["LLM_MODEL", "NOTIFICATION_DASHBOARD_URL"]) {
     assert.match(workflow, new RegExp(`\\$\\{\\{ vars\\.${name} \\}\\}`));
   }
+  assert.match(workflow, /LLM_PROVIDER: \$\{\{ vars\.LLM_PROVIDER \}\}/);
+  assert.doesNotMatch(workflow, /^\s+LLM_API_KEY:/m);
+  assert.match(workflow, /name: Select NVIDIA LLM credential[\s\S]*?if: env\.LLM_PROVIDER == ['"]nvidia['"][\s\S]*?SELECTED_LLM_API_KEY: \$\{\{ secrets\.NVIDIA_API_KEY \}\}/);
+  assert.match(workflow, /name: Select legacy OpenAI-compatible LLM credential[\s\S]*?if: env\.LLM_PROVIDER == ['"]['"] \|\| env\.LLM_PROVIDER == ['"]openai-compatible['"][\s\S]*?SELECTED_LLM_API_KEY: \$\{\{ secrets\.LLM_API_KEY \}\}/);
+  assert.match(workflow, /printf ['"]%s=%s\\n['"] LLM_API_KEY ["']\$SELECTED_LLM_API_KEY["'] >> ["']\$GITHUB_ENV["']/);
+  assert.doesNotMatch(workflow, /secrets\.NVIDIA_API_KEY\s*\|\|/);
+  assert.match(workflow, /LLM_BASE_URL: \$\{\{ vars\.LLM_BASE_URL \|\| vars\.LLM_API_BASE_URL \}\}/);
+  assert.doesNotMatch(workflow, /^\s+LLM_API_BASE_URL:/m);
   for (const name of [
     "WECOM_BOT_WEBHOOK_URL",
     "NOTIFICATION_SMTP_HOST",
@@ -320,6 +328,8 @@ test("cloud daily workflow fixes cloud capabilities and references secrets symbo
 
 test("cloud daily workflow migrates before invoking the existing CLI", () => {
   const commands = [
+    "Select NVIDIA LLM credential",
+    "Select legacy OpenAI-compatible LLM credential",
     "npm ci",
     "npm run check:env",
     "npm run prisma:cloud:validate",

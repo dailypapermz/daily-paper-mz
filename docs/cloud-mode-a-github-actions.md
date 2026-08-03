@@ -34,17 +34,22 @@ In the repository, create an Actions environment named `production`. Add these r
 | `DATABASE_URL` | Neon PostgreSQL connection string |
 | `ZOTERO_ID` | Zotero user or group identifier |
 | `ZOTERO_KEY` | Zotero Web API key |
-| `LLM_API_KEY` | Runtime LLM API key |
+| `NVIDIA_API_KEY` | NVIDIA NIM API key, created manually in the GitHub Environment |
 
 Add these environment variables as needed:
 
 | Variable | Purpose |
 |---|---|
-| `LLM_MODEL` | Runtime model name; repository defaults apply when omitted |
-| `LLM_API_BASE_URL` | Provider API base URL; use a Secret instead if the URL itself contains sensitive data |
+| `LLM_PROVIDER` | `nvidia`; required to select NVIDIA (omitting it preserves the legacy OpenAI-compatible provider) |
+| `LLM_BASE_URL` | `https://integrate.api.nvidia.com/v1` |
+| `LLM_MODEL` | `deepseek-ai/deepseek-v4-flash` |
 | `NOTIFICATION_DASHBOARD_URL` | Optional dashboard URL included in notifications |
 
-The committed workflow currently reads `LLM_API_BASE_URL` as a GitHub Variable. If a provider embeds credentials in that URL, edit the workflow to read a same-named Secret before enabling the job. Never commit either value.
+The NVIDIA key must be added manually; the repository contains no credential. The workflow maps only `NVIDIA_API_KEY` to the runtime `LLM_API_KEY` when `LLM_PROVIDER=nvidia`, with no cross-provider Secret fallback. `LLM_BASE_URL` takes precedence over the deprecated `LLM_API_BASE_URL` Variable, and trailing slashes are normalized. With `LLM_PROVIDER=nvidia`, omitted base/model values use the exact values above, while any different endpoint or model is rejected before provider calls.
+
+Use [NVIDIA NIM generative LLM configuration](./nvidia-nim-llm.md) for the exact runtime contract and the isolated manual smoke test. Base URLs must be HTTP(S) URLs without embedded credentials, query parameters, or fragments.
+
+For a controlled rollback to a generic OpenAI-compatible provider, set `LLM_PROVIDER=openai-compatible`, add the generic key as the legacy `LLM_API_KEY` Secret, and set that provider's full model name. The explicit provider value makes the workflow select `LLM_API_KEY` even if `NVIDIA_API_KEY` remains stored. Prefer `LLM_BASE_URL`; an existing `LLM_API_BASE_URL` Variable remains supported only when the canonical name is unset. If a provider puts credentials in its URL, do not store that URL as a GitHub Variable; revise the deployment under secret-handling review instead.
 
 ## 3. Optional notifications
 

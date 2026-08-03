@@ -1,0 +1,36 @@
+name: NVIDIA NIM LLM smoke test
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: daily-paper-nvidia-llm-smoke-${{ github.repository }}-production
+  cancel-in-progress: false
+
+jobs:
+  smoke:
+    name: Validate one isolated NVIDIA chat completion
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 5
+    env:
+      NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+      LLM_BASE_URL: ${{ vars.LLM_BASE_URL }}
+      LLM_MODEL: ${{ vars.LLM_MODEL }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: Send one fixed structured-output prompt
+        run: node scripts/nvidia-llm-smoke.mjs

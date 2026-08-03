@@ -20,7 +20,7 @@ export class UnavailableTagGenerationProvider implements TagGenerationProvider {
 export function createTagGenerationProvider(): TagGenerationProvider {
   const env = getEnv();
 
-  if (env.LLM_API_KEY && env.LLM_API_BASE_URL) {
+  if (env.LLM_API_KEY && env.LLM_BASE_URL) {
     return new UnavailableTagGenerationProvider("llm_configured_but_unwired");
   }
 
