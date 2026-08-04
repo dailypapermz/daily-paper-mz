@@ -213,6 +213,8 @@ type LlmRequestOptions = {
 };
 
 const RETRYABLE_LLM_STATUS_CODES = new Set([429, 500, 502, 503, 504]);
+const NVIDIA_GATEWAY_RETRY_STATUS_MIN = 520;
+const NVIDIA_GATEWAY_RETRY_STATUS_MAX = 529;
 const MAX_LLM_RETRIES = 5;
 const LLM_RETRY_BACKOFF_MS = 250;
 
@@ -241,7 +243,8 @@ async function fetchLlmCompletion(
       return response;
     }
 
-    if (RETRYABLE_LLM_STATUS_CODES.has(response.status) && attempt < options.maxRetries) {
+    await discardResponseBody(response);
+    if (isRetryableLlmStatus(response.status) && attempt < options.maxRetries) {
       await waitForRetry(LLM_RETRY_BACKOFF_MS * (attempt + 1));
       continue;
     }
@@ -264,7 +267,7 @@ function providerStatusError(status: number, attempts: number, options: LlmReque
             ? "request_timeout_status"
             : status === 429
               ? "rate_limited"
-              : RETRYABLE_LLM_STATUS_CODES.has(status)
+              : isRetryableLlmStatus(status)
                 ? "upstream_unavailable"
                 : status >= 400 && status < 500
                   ? "request_rejected"
@@ -308,6 +311,20 @@ function isAbortError(error: unknown) {
 
 function waitForRetry(milliseconds: number) {
   return new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
+}
+
+function isRetryableLlmStatus(status: number) {
+  return RETRYABLE_LLM_STATUS_CODES.has(status) || (
+    status >= NVIDIA_GATEWAY_RETRY_STATUS_MIN && status <= NVIDIA_GATEWAY_RETRY_STATUS_MAX
+  );
+}
+
+async function discardResponseBody(response: Response) {
+  try {
+    await response.body?.cancel();
+  } catch {
+    // The response is discarded before a retry or failure; never surface provider body details.
+  }
 }
 
 function normalizeMaxRetries(value?: number) {
