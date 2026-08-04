@@ -33,3 +33,16 @@ test("final bundle contract rejects embedded GitHub tokens", async (context) => 
 
   await assert.rejects(validateCloudflareFinalBundle(root), /embedded GitHub token/);
 });
+
+test("final bundle contract rejects the native Prisma query-engine runtime", async (context) => {
+  const root = join(import.meta.dirname, `.tmp-native-prisma-final-worker-${process.pid}`);
+  context.after(() => rm(root, { recursive: true, force: true }));
+  await mkdir(root, { recursive: true });
+  await writeFile(
+    join(root, "custom-worker.js"),
+    'console.warn("Prisma failed to detect the libssl/openssl version to use");\n',
+    "utf8"
+  );
+
+  await assert.rejects(validateCloudflareFinalBundle(root), /native Prisma runtime/);
+});

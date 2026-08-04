@@ -102,7 +102,7 @@ test("Worker build selects the OpenNext-patchable Neon client without replacing 
   assert.equal(packageJson.scripts["prisma:cloud:generate"].includes("--generator client"), true);
 });
 
-test("Worker database modules use the OpenNext-patchable Prisma package", async () => {
+test("Worker database modules select Prisma's workerd-safe WASM entrypoint explicitly", async () => {
   const edgeClient = await readFile(
     new URL("../src/db/prisma/edge-application-client.ts", import.meta.url),
     "utf8"
@@ -111,8 +111,8 @@ test("Worker database modules use the OpenNext-patchable Prisma package", async 
     new URL("../src/db/prisma/edge-application-json.ts", import.meta.url),
     "utf8"
   );
-  assert.match(edgeClient, /from\s+["']@prisma\/client["']/);
-  assert.match(edgeJson, /from\s+["']@prisma\/client["']/);
+  assert.match(edgeClient, /from\s+["']@prisma\/client\/wasm\.js["']/);
+  assert.match(edgeJson, /from\s+["']@prisma\/client\/wasm\.js["']/);
   assert.doesNotMatch(edgeClient + edgeJson, /prisma-postgresql-worker/);
 });
 
