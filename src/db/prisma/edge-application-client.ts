@@ -1,5 +1,5 @@
 import { PrismaNeon } from "@prisma/adapter-neon";
-import { PrismaClient as WorkerPrismaClient } from "@prisma/client";
+import { PrismaClient as WorkerPrismaClient } from "@prisma/client/wasm.js";
 
 import type { DatabasePrismaClient } from "./client";
 import { resolveDatabaseRuntime, type DatabaseEnvironment } from "./runtime";

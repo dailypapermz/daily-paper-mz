@@ -13,7 +13,7 @@ Owner browser -> Cloudflare Access -> OpenNext Worker
                                   read + interactive writes
 ```
 
-The Worker uses `@prisma/adapter-neon` with a Rust-free Prisma Client generated from `prisma/postgresql/schema.prisma`. The standard PostgreSQL Client and migration history used by GitHub Actions are unchanged. The SQLite Client remains the Local Mode implementation.
+The Worker uses `@prisma/adapter-neon` with the generated client's explicit `@prisma/client/wasm.js` entrypoint from `prisma/postgresql/schema.prisma`. Selecting the WASM entrypoint explicitly prevents a Windows-built deployment from falling back to Prisma's native query engine when Wrangler bundles on Windows. The standard PostgreSQL Client and migration history used by GitHub Actions are unchanged. The SQLite Client remains the Local Mode implementation.
 
 ## Build and local preview
 

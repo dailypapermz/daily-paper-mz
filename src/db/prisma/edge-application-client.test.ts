@@ -1,4 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+vi.mock("@prisma/client/wasm.js", () => ({
+  PrismaClient: class MockWorkerPrismaClient {
+    async $disconnect() {}
+  }
+}));
 
 import {
   getApplicationPrismaClient,
