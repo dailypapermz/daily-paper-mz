@@ -222,6 +222,56 @@ describe("DefaultCandidateOutputService", () => {
     expect(result).toMatchObject({ requested: 2, generated: 1, failed: 1 });
   });
 
+  it("does not let unsupported cancer single-cell terms monopolize the label budget", async () => {
+    const candidates = [
+      {
+        candidateId: "candidate-cancer-single-cell",
+        runId: "run-1",
+        canonicalKey: "canon-1",
+        title: "Single-cell tumor atlas for cancer patient stratification",
+        sourceProvenance: []
+      },
+      {
+        candidateId: "candidate-comparative",
+        runId: "run-1",
+        canonicalKey: "canon-2",
+        title: "Cross-species comparative genomics of evolutionary conservation",
+        sourceProvenance: []
+      }
+    ];
+    const repository = {
+      listCandidatesForGeneration: vi.fn().mockResolvedValue(candidates),
+      saveGeneratedOutput: vi.fn(),
+      saveGeneratedLabels: vi.fn(),
+      saveGeneratedSummary: vi.fn(),
+      saveUserCorrectedOutput: vi.fn(),
+      listRunOutputs: vi.fn().mockResolvedValue([]),
+      listRunOutputsByCandidateId: vi.fn()
+    };
+    const provider = {
+      name: "mock-provider",
+      getHealth: () => ({ name: "mock-provider", status: "ready" as const }),
+      generateLabelsBatch: vi.fn().mockImplementation(async (batch: typeof candidates) =>
+        batch.map((candidate) => ({
+          candidateId: candidate.candidateId,
+          labels: { contentRecallLabel: "comparative genomics" }
+        }))
+      ),
+      generateLabels: vi.fn(),
+      generateSummary: vi.fn(),
+      generateOutput: vi.fn()
+    };
+
+    const result = await new DefaultCandidateOutputService(repository, provider, {
+      labelCandidateLimit: 1
+    }).generateLabelsForRun({ runId: "run-1" });
+
+    expect(provider.generateLabelsBatch).toHaveBeenCalledWith([
+      expect.objectContaining({ candidateId: "candidate-comparative" })
+    ]);
+    expect(result.requested).toBe(1);
+  });
+
   it("falls back to isolated label generation when a batch fails", async () => {
     const candidates = [
       { candidateId: "candidate-1", runId: "run-1", canonicalKey: "canon-1", sourceProvenance: [] },

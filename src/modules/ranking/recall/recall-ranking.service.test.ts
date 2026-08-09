@@ -45,6 +45,94 @@ describe("computeRecallFeatures", () => {
     expect(feature.reasons.length).toBeGreaterThan(0);
   });
 
+  it("only grants a strong single-cell boost when the profile supports that family", () => {
+    const candidate = {
+      candidateId: "candidate-single-cell",
+      runId: "run-1",
+      title: "Single-cell transcriptomics maps cell-state trajectories",
+      abstractNote: "A scRNA-seq atlas method",
+      sources: ["pubmed" as const]
+    };
+    const unsupportedProfile: ActiveProfileSnapshotRecord = {
+      id: "snap-comparative",
+      builtAt: new Date().toISOString(),
+      representationTexts: ["cross-species evolutionary conservation"],
+      contentRecallLabels: ["comparative regulatory analysis"],
+      researchTypePreferences: []
+    };
+    const supportedProfile: ActiveProfileSnapshotRecord = {
+      ...unsupportedProfile,
+      id: "snap-single-cell",
+      representationTexts: ["single-cell transcriptomics and scRNA-seq methods"],
+      contentRecallLabels: ["cell atlas trajectory inference"]
+    };
+
+    const unsupported = computeRecallFeatures(candidate, unsupportedProfile);
+    const supported = computeRecallFeatures(candidate, supportedProfile);
+
+    expect(unsupported.reasons).not.toContain("domain_topic_alignment");
+    expect(supported.reasons).toContain("domain_topic_alignment");
+    expect(supported.recallScore).toBeGreaterThan(unsupported.recallScore + 0.05);
+  });
+
+  it("ranks an explicit comparative topic above unsupported cancer single-cell content", () => {
+    const profile: ActiveProfileSnapshotRecord = {
+      id: "snap-comparative",
+      builtAt: new Date().toISOString(),
+      representationTexts: ["cross-species comparative genomics and regulatory genomics"],
+      contentRecallLabels: ["evolutionary conservation of gene regulation"],
+      researchTypePreferences: []
+    };
+    const cancerSingleCell = computeRecallFeatures(
+      {
+        candidateId: "candidate-cancer",
+        runId: "run-1",
+        title: "Single-cell tumor atlas for cancer patient stratification",
+        abstractNote: "Malignant cell states across carcinoma samples",
+        sources: ["pubmed"]
+      },
+      profile
+    );
+    const comparative = computeRecallFeatures(
+      {
+        candidateId: "candidate-comparative",
+        runId: "run-1",
+        title: "Cross-species comparative genomics of regulatory conservation",
+        abstractNote: "Evolutionary analysis of conserved gene regulation",
+        sources: ["pubmed"]
+      },
+      profile
+    );
+
+    expect(cancerSingleCell.reasons).toContain("oncology_context_penalty");
+    expect(comparative.reasons).toContain("domain_topic_alignment");
+    expect(comparative.recallScore).toBeGreaterThan(cancerSingleCell.recallScore + 0.1);
+  });
+
+  it("keeps cancer papers eligible when they match an explicit regulatory topic", () => {
+    const profile: ActiveProfileSnapshotRecord = {
+      id: "snap-regulatory",
+      builtAt: new Date().toISOString(),
+      representationTexts: ["regulatory genomics chromatin and gene regulation"],
+      contentRecallLabels: ["comparative regulatory genomics"],
+      researchTypePreferences: []
+    };
+    const related = computeRecallFeatures(
+      {
+        candidateId: "candidate-related-cancer",
+        runId: "run-1",
+        title: "Regulatory genomics of chromatin conservation in cancer",
+        abstractNote: "Comparative analysis of conserved gene regulation",
+        sources: ["pubmed"]
+      },
+      profile
+    );
+
+    expect(related.recallScore).toBeGreaterThan(0.15);
+    expect(related.reasons).toContain("domain_topic_alignment");
+    expect(related.reasons).toContain("oncology_context_penalty");
+  });
+
   it("boosts domain-aligned candidates over generic clinical AI titles", () => {
     const snapshot: ActiveProfileSnapshotRecord = {
       id: "snap-1",
