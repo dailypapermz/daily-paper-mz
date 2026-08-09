@@ -14,10 +14,11 @@ const BATCH_SIZE = 500;
 export class PrismaRecallRankingRepository implements RecallRankingRepository {
   constructor(private readonly db: PrismaClient) {}
 
-  async getActiveProfileSnapshot(): Promise<ActiveProfileSnapshotRecord | null> {
+  async getProfileSnapshot(profileSnapshotId?: string): Promise<ActiveProfileSnapshotRecord | null> {
     const snapshot = await this.db.profileSnapshot.findFirst({
       where: {
-        status: "ACTIVE"
+        status: "ACTIVE",
+        ...(profileSnapshotId ? { id: profileSnapshotId } : {})
       },
       include: {
         itemSignals: {

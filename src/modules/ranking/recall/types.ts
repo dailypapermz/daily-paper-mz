@@ -60,7 +60,7 @@ export type RecallRunOutput = {
 };
 
 export interface RecallRankingRepository {
-  getActiveProfileSnapshot(): Promise<ActiveProfileSnapshotRecord | null>;
+  getProfileSnapshot(profileSnapshotId?: string): Promise<ActiveProfileSnapshotRecord | null>;
   listRunCandidates(runId: string): Promise<RecallCandidateRecord[]>;
   createRecallRun(input: { runId: string; profileSnapshotId: string; requestedTopN: number }): Promise<{ id: string }>;
   saveRecallResults(input: {
@@ -77,6 +77,6 @@ export interface RecallRankingRepository {
 }
 
 export interface RecallRankingService {
-  runRecall(input: { runId: string; topN?: number }): Promise<RecallRunOutput>;
+  runRecall(input: { runId: string; topN?: number; expectedProfileSnapshotId?: string }): Promise<RecallRunOutput>;
   getLatestRecallRun(input: { runId: string }): Promise<RecallRunOutput | null>;
 }

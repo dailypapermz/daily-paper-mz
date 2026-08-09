@@ -20,11 +20,18 @@ const TOPIC_CONTEXT_PENALTY_WEIGHT = 0.3;
 export class DefaultRecallRankingService implements RecallRankingService {
   constructor(private readonly repository: RecallRankingRepository) {}
 
-  async runRecall(input: { runId: string; topN?: number }) {
+  async runRecall(input: { runId: string; topN?: number; expectedProfileSnapshotId?: string }) {
     const topN = input.topN && input.topN > 0 ? input.topN : 100;
 
-    const snapshot = await this.repository.getActiveProfileSnapshot();
+    const snapshot = await this.repository.getProfileSnapshot(input.expectedProfileSnapshotId);
     if (!snapshot) {
+      if (input.expectedProfileSnapshotId) {
+        throw new AppError(
+          "PROFILE_SNAPSHOT_NOT_ACTIVE",
+          "Expected profile snapshot is no longer active",
+          409
+        );
+      }
       throw new AppError("ACTIVE_PROFILE_NOT_FOUND", "No active profile snapshot available", 400);
     }
 

@@ -133,6 +133,7 @@ export interface ProfileRefreshRepository {
 
 export interface ProfileRefreshService {
   runManualRefresh(): Promise<{ job: ProfileRefreshJobSummary; snapshot: ProfileSnapshotSummary }>;
+  runScheduledRefresh(): Promise<{ job: ProfileRefreshJobSummary; snapshot: ProfileSnapshotSummary }>;
   getRefreshStatus(): Promise<{
     latestJob: ProfileRefreshJobSummary | null;
     activeSnapshot: ProfileSnapshotSummary | null;
