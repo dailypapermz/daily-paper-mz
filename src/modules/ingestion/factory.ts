@@ -20,7 +20,11 @@ export function createDailyIngestionService(adapters: DailySourceAdapter[] = [])
       subjectScopes: env.BIORXIV_SUBJECT_SCOPES
     }),
     new ArxivSourceAdapter({
-      categoryScopes: env.ARXIV_CATEGORY_SCOPES
+      categoryScopes: env.ARXIV_CATEGORY_SCOPES,
+      timeoutMs: env.SOURCE_HTTP_TIMEOUT_MS,
+      retryBackoffMs: env.ARXIV_RETRY_BACKOFF_MS,
+      retryAfterCapMs: env.ARXIV_RETRY_AFTER_CAP_MS,
+      maxPages: env.ARXIV_MAX_PAGES
     }),
     new PubmedSourceAdapter({
       queryScope: env.PUBMED_QUERY_SCOPE
