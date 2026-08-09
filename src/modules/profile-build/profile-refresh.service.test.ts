@@ -28,8 +28,10 @@ class FakeBuildService implements ProfileBuildService {
 
 class FakeRefreshRepository implements ProfileRefreshRepository {
   private jobStatus: "running" | "success" | "failed" = "running";
+  trigger: "initial" | "manual" | "scheduled" = "manual";
 
-  async createRefreshJob() {
+  async createRefreshJob(input: { trigger: "initial" | "manual" | "scheduled" }) {
+    this.trigger = input.trigger;
     return { id: "job-1" };
   }
 
@@ -37,7 +39,7 @@ class FakeRefreshRepository implements ProfileRefreshRepository {
     this.jobStatus = "success";
     return {
       id: "job-1",
-      trigger: "manual" as const,
+      trigger: this.trigger,
       status: "success" as const,
       startedAt: new Date().toISOString(),
       finishedAt: new Date().toISOString(),
@@ -49,7 +51,7 @@ class FakeRefreshRepository implements ProfileRefreshRepository {
     this.jobStatus = "failed";
     return {
       id: input.jobId,
-      trigger: "manual" as const,
+      trigger: this.trigger,
       status: "failed" as const,
       startedAt: new Date().toISOString(),
       finishedAt: new Date().toISOString(),
@@ -60,7 +62,7 @@ class FakeRefreshRepository implements ProfileRefreshRepository {
   async getLatestRefreshJob() {
     return {
       id: "job-1",
-      trigger: "manual" as const,
+      trigger: this.trigger,
       status: this.jobStatus,
       startedAt: new Date().toISOString()
     };
@@ -96,15 +98,33 @@ describe("DefaultProfileRefreshService", () => {
   };
 
   it("runs manual refresh and persists success job status", async () => {
+    const repository = new FakeRefreshRepository();
     const service = new DefaultProfileRefreshService(
       new FakeBuildService(snapshot),
-      new FakeRefreshRepository()
+      repository
     );
 
     const result = await service.runManualRefresh();
 
     expect(result.snapshot.id).toBe("snapshot-1");
     expect(result.job.status).toBe("success");
+    expect(result.job.trigger).toBe("manual");
+    expect(repository.trigger).toBe("manual");
+  });
+
+  it("runs scheduled refresh through the same builder with a scheduled job", async () => {
+    const repository = new FakeRefreshRepository();
+    const service = new DefaultProfileRefreshService(
+      new FakeBuildService(snapshot),
+      repository
+    );
+
+    const result = await service.runScheduledRefresh();
+
+    expect(result.snapshot.id).toBe("snapshot-1");
+    expect(result.job.status).toBe("success");
+    expect(result.job.trigger).toBe("scheduled");
+    expect(repository.trigger).toBe("scheduled");
   });
 
   it("records monthly reminder as due when refresh is older than 30 days", async () => {

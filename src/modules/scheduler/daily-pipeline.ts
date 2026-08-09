@@ -7,6 +7,7 @@ import {
   type DailyCandidateSourceValue
 } from "../ingestion";
 import { createCandidateNormalizationService } from "../normalize-dedupe";
+import { createProfileRefreshService } from "../profile-build";
 import { createRecallRankingService } from "../ranking/recall";
 import { createRerankService } from "../ranking/rerank";
 import { createCandidateOutputService } from "../summary";
@@ -57,6 +58,7 @@ export async function runDailyRecommendationPipeline(input?: {
   const enrich = createJournalEnrichmentService();
   const dedupe = createCandidateNormalizationService();
   const summarize = createCandidateOutputService();
+  const profileRefresh = createProfileRefreshService();
   const recall = createRecallRankingService();
   const rerank = createRerankService();
   const stageStatus = createPipelineStageService();
@@ -195,8 +197,23 @@ export async function runDailyRecommendationPipeline(input?: {
     activeStage = "recall";
     if (shouldRun(activeStage)) {
       await stageStatus.start({ runId, attempt: activeAttempt!, stage: activeStage });
-      const recallResult = await recall.runRecall({ runId });
-      await stageStatus.complete({ runId, attempt: activeAttempt!, stage: activeStage, details: { recallRunId: recallResult.run.id } });
+      const profileRefreshResult = await profileRefresh.runScheduledRefresh();
+      const recallResult = await recall.runRecall({
+        runId,
+        expectedProfileSnapshotId: profileRefreshResult.snapshot.id
+      });
+      await stageStatus.complete({
+        runId,
+        attempt: activeAttempt!,
+        stage: activeStage,
+        details: {
+          profileRefreshJobId: profileRefreshResult.job.id,
+          refreshedProfileSnapshotId: profileRefreshResult.snapshot.id,
+          profileSnapshotBuiltAt: profileRefreshResult.snapshot.builtAt,
+          recallRunId: recallResult.run.id,
+          recallProfileSnapshotId: recallResult.run.profileSnapshotId
+        }
+      });
     }
 
     activeStage = "rerank";

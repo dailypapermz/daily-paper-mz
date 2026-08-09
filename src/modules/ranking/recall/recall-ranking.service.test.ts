@@ -372,14 +372,15 @@ describe("DefaultRecallRankingService", () => {
     });
     const getLatestRecallRun = vi.fn().mockResolvedValue(null);
 
+    const getProfileSnapshot = vi.fn().mockResolvedValue({
+      id: "snap-1",
+      builtAt: new Date().toISOString(),
+      representationTexts: ["single cell model"],
+      contentRecallLabels: ["single cell recall"],
+      researchTypePreferences: [{ category: "method", weight: 1 }]
+    });
     const service = new DefaultRecallRankingService({
-      getActiveProfileSnapshot: vi.fn().mockResolvedValue({
-        id: "snap-1",
-        builtAt: new Date().toISOString(),
-        representationTexts: ["single cell model"],
-        contentRecallLabels: ["single cell recall"],
-        researchTypePreferences: [{ category: "method", weight: 1 }]
-      }),
+      getProfileSnapshot,
       listRunCandidates: vi.fn().mockResolvedValue([
         {
           candidateId: "candidate-1",
@@ -403,10 +404,17 @@ describe("DefaultRecallRankingService", () => {
 
     const result = await service.runRecall({
       runId: "run-1",
-      topN: 1
+      topN: 1,
+      expectedProfileSnapshotId: "snap-1"
     });
 
+    expect(getProfileSnapshot).toHaveBeenCalledWith("snap-1");
     expect(createRecallRun).toHaveBeenCalledTimes(1);
+    expect(createRecallRun).toHaveBeenCalledWith({
+      runId: "run-1",
+      profileSnapshotId: "snap-1",
+      requestedTopN: 1
+    });
     expect(saveRecallResults).toHaveBeenCalledTimes(1);
     expect(result.results[0].selected).toBe(true);
     expect(result.results[1].selected).toBe(false);
@@ -414,7 +422,7 @@ describe("DefaultRecallRankingService", () => {
 
   it("fails when active profile is missing", async () => {
     const service = new DefaultRecallRankingService({
-      getActiveProfileSnapshot: vi.fn().mockResolvedValue(null),
+      getProfileSnapshot: vi.fn().mockResolvedValue(null),
       listRunCandidates: vi.fn(),
       createRecallRun: vi.fn(),
       saveRecallResults: vi.fn(),
@@ -424,5 +432,25 @@ describe("DefaultRecallRankingService", () => {
     });
 
     await expect(service.runRecall({ runId: "run-1" })).rejects.toBeInstanceOf(AppError);
+  });
+
+  it("fails closed when the expected refreshed snapshot is no longer active", async () => {
+    const getProfileSnapshot = vi.fn().mockResolvedValue(null);
+    const createRecallRun = vi.fn();
+    const service = new DefaultRecallRankingService({
+      getProfileSnapshot,
+      listRunCandidates: vi.fn(),
+      createRecallRun,
+      saveRecallResults: vi.fn(),
+      markRecallRunSucceeded: vi.fn(),
+      markRecallRunFailed: vi.fn(),
+      getLatestRecallRun: vi.fn()
+    });
+
+    await expect(
+      service.runRecall({ runId: "run-1", expectedProfileSnapshotId: "snapshot-refreshed" })
+    ).rejects.toMatchObject({ code: "PROFILE_SNAPSHOT_NOT_ACTIVE" });
+    expect(getProfileSnapshot).toHaveBeenCalledWith("snapshot-refreshed");
+    expect(createRecallRun).not.toHaveBeenCalled();
   });
 });

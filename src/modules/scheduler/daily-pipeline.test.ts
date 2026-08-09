@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   runForIngestionRun: vi.fn(),
   generateLabelsForRun: vi.fn(),
   generateSummariesForRun: vi.fn(),
+  runScheduledRefresh: vi.fn(),
   runRecall: vi.fn(),
   runRerank: vi.fn(),
   initializeStages: vi.fn(),
@@ -47,6 +48,12 @@ vi.mock("../summary", () => ({
   })
 }));
 
+vi.mock("../profile-build", () => ({
+  createProfileRefreshService: () => ({
+    runScheduledRefresh: mocks.runScheduledRefresh
+  })
+}));
+
 vi.mock("../ranking/recall", () => ({
   createRecallRankingService: () => ({
     runRecall: mocks.runRecall
@@ -74,6 +81,7 @@ vi.mock("../pipeline-status", async (importOriginal) => {
 });
 
 import { runDailyRecommendationPipeline } from "./daily-pipeline";
+import { computeRecallFeatures } from "../ranking/recall/recall-ranking.service";
 
 describe("runDailyRecommendationPipeline", () => {
   beforeEach(() => {
@@ -85,6 +93,7 @@ describe("runDailyRecommendationPipeline", () => {
     mocks.runForIngestionRun.mockReset();
     mocks.generateLabelsForRun.mockReset();
     mocks.generateSummariesForRun.mockReset();
+    mocks.runScheduledRefresh.mockReset();
     mocks.runRecall.mockReset();
     mocks.runRerank.mockReset();
     mocks.initializeStages.mockReset();
@@ -96,7 +105,20 @@ describe("runDailyRecommendationPipeline", () => {
     mocks.runForIngestionRun.mockResolvedValue({ canonicalCount: 0 });
     mocks.generateLabelsForRun.mockResolvedValue({ requested: 0, generated: 0, failed: 0 });
     mocks.generateSummariesForRun.mockResolvedValue({ requested: 0, generated: 0, failed: 0 });
-    mocks.runRecall.mockResolvedValue({ run: { id: "recall-1" } });
+    mocks.runScheduledRefresh.mockResolvedValue({
+      job: { id: "profile-refresh-1", trigger: "scheduled", status: "success" },
+      snapshot: {
+        id: "snapshot-refreshed",
+        status: "active",
+        builtAt: "2026-08-09T00:00:00.000Z",
+        itemsCount: 1,
+        segments: { recentCore: 1, stableLongTerm: 0, background: 0 },
+        researchTypePreferences: []
+      }
+    });
+    mocks.runRecall.mockResolvedValue({
+      run: { id: "recall-1", profileSnapshotId: "snapshot-refreshed" }
+    });
     mocks.runRerank.mockResolvedValue({ run: { id: "rerank-1" } });
     mocks.getRun.mockResolvedValue(null);
     mocks.listStages.mockResolvedValue([
@@ -133,7 +155,23 @@ describe("runDailyRecommendationPipeline", () => {
     expect(mocks.enrichRun).toHaveBeenCalledWith("run-1");
     expect(mocks.runForIngestionRun).toHaveBeenCalledWith("run-1");
     expect(mocks.startStage).toHaveBeenCalledTimes(6);
-    expect(mocks.runRecall).toHaveBeenCalledWith({ runId: "run-1" });
+    expect(mocks.runScheduledRefresh).toHaveBeenCalledTimes(1);
+    expect(mocks.runRecall).toHaveBeenCalledWith({
+      runId: "run-1",
+      expectedProfileSnapshotId: "snapshot-refreshed"
+    });
+    expect(mocks.completeStage).toHaveBeenCalledWith({
+      runId: "run-1",
+      attempt: 1,
+      stage: "recall",
+      details: {
+        profileRefreshJobId: "profile-refresh-1",
+        refreshedProfileSnapshotId: "snapshot-refreshed",
+        profileSnapshotBuiltAt: "2026-08-09T00:00:00.000Z",
+        recallRunId: "recall-1",
+        recallProfileSnapshotId: "snapshot-refreshed"
+      }
+    });
     expect(mocks.runRerank).toHaveBeenCalledWith({ runId: "run-1", topN: 20 });
     expect(mocks.generateLabelsForRun).toHaveBeenCalledWith({ runId: "run-1" });
     expect(mocks.generateSummariesForRun).toHaveBeenCalledWith({
@@ -142,6 +180,9 @@ describe("runDailyRecommendationPipeline", () => {
       selectedOnly: true
     });
     expect(mocks.generateLabelsForRun.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.runScheduledRefresh.mock.invocationCallOrder[0]
+    );
+    expect(mocks.runScheduledRefresh.mock.invocationCallOrder[0]).toBeLessThan(
       mocks.runRecall.mock.invocationCallOrder[0]
     );
     expect(mocks.runRecall.mock.invocationCallOrder[0]).toBeLessThan(
@@ -224,6 +265,7 @@ describe("runDailyRecommendationPipeline", () => {
     expect(mocks.runForIngestionRun).not.toHaveBeenCalled();
     expect(mocks.runRecall).not.toHaveBeenCalled();
     expect(mocks.runRerank).not.toHaveBeenCalled();
+    expect(mocks.runScheduledRefresh).not.toHaveBeenCalled();
   });
 
   it("resumes from the first partial downstream stage", async () => {
@@ -336,7 +378,10 @@ describe("runDailyRecommendationPipeline", () => {
     expect(mocks.enrichRun).not.toHaveBeenCalled();
     expect(mocks.runForIngestionRun).not.toHaveBeenCalled();
     expect(mocks.generateLabelsForRun).toHaveBeenCalledWith({ runId: "run-existing" });
-    expect(mocks.runRecall).toHaveBeenCalledWith({ runId: "run-existing" });
+    expect(mocks.runRecall).toHaveBeenCalledWith({
+      runId: "run-existing",
+      expectedProfileSnapshotId: "snapshot-refreshed"
+    });
     expect(mocks.runRerank).toHaveBeenCalledWith({ runId: "run-existing", topN: 20 });
     expect(mocks.generateSummariesForRun).toHaveBeenCalledWith({
       runId: "run-existing",
@@ -383,7 +428,10 @@ describe("runDailyRecommendationPipeline", () => {
     expect(mocks.runForIngestionRun).toHaveBeenCalledTimes(1);
     expect(mocks.runForIngestionRun).toHaveBeenCalledWith("run-normalization-retry");
     expect(mocks.generateLabelsForRun).toHaveBeenCalledWith({ runId: "run-normalization-retry" });
-    expect(mocks.runRecall).toHaveBeenCalledWith({ runId: "run-normalization-retry" });
+    expect(mocks.runRecall).toHaveBeenCalledWith({
+      runId: "run-normalization-retry",
+      expectedProfileSnapshotId: "snapshot-refreshed"
+    });
     expect(mocks.runRerank).toHaveBeenCalledWith({ runId: "run-normalization-retry", topN: 20 });
     expect(mocks.generateSummariesForRun).toHaveBeenCalledWith({
       runId: "run-normalization-retry",
@@ -406,6 +454,154 @@ describe("runDailyRecommendationPipeline", () => {
       retryable: false
     });
     expect(mocks.failRun).not.toHaveBeenCalled();
+    expect(mocks.runScheduledRefresh).not.toHaveBeenCalled();
+  });
+
+  it("refreshes persisted dismiss feedback before Recall and keeps the result as a soft penalty", async () => {
+    mocks.runAggregatedIngestion.mockResolvedValue({
+      run: { id: "run-feedback", attempt: 1 },
+      disposition: "acquired",
+      sourceSummaries: [{ source: "pubmed", status: "success", candidatesCount: 1 }]
+    });
+
+    const previousSnapshot = {
+      id: "snapshot-stale",
+      builtAt: "2026-08-08T00:00:00.000Z",
+      representationTexts: ["single-cell atlas"],
+      contentRecallLabels: ["single-cell tumor atlas"],
+      researchTypePreferences: [{ category: "biology" as const, weight: 1 }],
+      negativeFeedbackSignals: []
+    };
+    const refreshedSnapshot = {
+      ...previousSnapshot,
+      id: "snapshot-with-dismiss",
+      builtAt: "2026-08-09T00:00:00.000Z",
+      negativeFeedbackSignals: [{
+        paperIdentityKey: "doi:10.1000/dismissed",
+        sourceCandidateId: "candidate-dismissed",
+        sourceFeedbackLogId: "feedback-dismissed",
+        representationText: "oncology single-cell tumor atlas",
+        contentRecallLabel: "single-cell tumor atlas",
+        effectiveAt: "2026-08-08T12:00:00.000Z"
+      }]
+    };
+    mocks.runScheduledRefresh.mockResolvedValueOnce({
+      job: { id: "profile-refresh-feedback", trigger: "scheduled", status: "success" },
+      snapshot: {
+        id: refreshedSnapshot.id,
+        status: "active",
+        builtAt: refreshedSnapshot.builtAt,
+        itemsCount: 1,
+        segments: { recentCore: 1, stableLongTerm: 0, background: 0 },
+        researchTypePreferences: refreshedSnapshot.researchTypePreferences
+      }
+    });
+    mocks.runRecall.mockImplementationOnce(async (input: {
+      runId: string;
+      expectedProfileSnapshotId?: string;
+    }) => {
+      expect(input.expectedProfileSnapshotId).toBe(refreshedSnapshot.id);
+      const scores = computeRecallFeatures({
+        candidateId: "candidate-new",
+        runId: input.runId,
+        title: "Oncology single-cell tumor atlas",
+        contentRecallLabel: "single-cell tumor atlas",
+        researchCategory: "biology",
+        sources: ["pubmed"]
+      }, refreshedSnapshot);
+      return {
+        run: { id: "recall-feedback", profileSnapshotId: refreshedSnapshot.id },
+        results: [{ candidateId: "candidate-new", rank: 1, selected: true, scores }]
+      };
+    });
+
+    const result = await runDailyRecommendationPipeline({ sources: ["pubmed"] });
+    const recallOutput = await mocks.runRecall.mock.results[0].value;
+
+    expect(result.status).toBe("complete");
+    expect(recallOutput.results[0].scores.reasons).toContain("dismiss_similarity_penalty");
+    expect(recallOutput.results[0].scores.recallScore).toBeGreaterThan(0);
+    expect(recallOutput.results[0].selected).toBe(true);
+  });
+
+  it("fails the Recall stage instead of falling back to a stale profile when refresh fails", async () => {
+    mocks.runAggregatedIngestion.mockResolvedValue({
+      run: { id: "run-refresh-failure", attempt: 1 },
+      disposition: "acquired",
+      sourceSummaries: [{ source: "pubmed", status: "success", candidatesCount: 1 }]
+    });
+    mocks.runScheduledRefresh.mockRejectedValueOnce(new Error("profile refresh failed"));
+    mocks.listStages
+      .mockResolvedValueOnce([
+        { stage: "ingestion", status: "success" },
+        { stage: "enrichment", status: "pending" },
+        { stage: "normalization", status: "pending" },
+        { stage: "representation", status: "pending" },
+        { stage: "recall", status: "pending" },
+        { stage: "rerank", status: "pending" },
+        { stage: "summary", status: "pending" }
+      ])
+      .mockResolvedValueOnce([
+        { stage: "ingestion", status: "success" },
+        { stage: "enrichment", status: "success" },
+        { stage: "normalization", status: "success" },
+        { stage: "representation", status: "success" },
+        { stage: "recall", status: "failed", errorMessage: "profile refresh failed" },
+        { stage: "rerank", status: "skipped" },
+        { stage: "summary", status: "skipped" }
+      ]);
+
+    const result = await runDailyRecommendationPipeline({ sources: ["pubmed"] });
+
+    expect(result).toMatchObject({
+      runId: "run-refresh-failure",
+      status: "failed",
+      failedStage: "recall",
+      retryable: true
+    });
+    expect(mocks.failStage).toHaveBeenCalledWith({
+      runId: "run-refresh-failure",
+      attempt: 1,
+      stage: "recall",
+      errorMessage: "profile refresh failed"
+    });
+    expect(mocks.runRecall).not.toHaveBeenCalled();
+    expect(mocks.runRerank).not.toHaveBeenCalled();
+    expect(mocks.generateSummariesForRun).not.toHaveBeenCalled();
+  });
+
+  it("does not refresh again when a retry resumes after a successful Recall stage", async () => {
+    mocks.runAggregatedIngestion.mockResolvedValue({
+      run: { id: "run-rerank-retry", attempt: 2 },
+      disposition: "pipeline_acquired",
+      sourceSummaries: [{ source: "pubmed", status: "success", candidatesCount: 1 }]
+    });
+    mocks.listStages
+      .mockResolvedValueOnce([
+        { stage: "ingestion", status: "success" },
+        { stage: "enrichment", status: "success" },
+        { stage: "normalization", status: "success" },
+        { stage: "representation", status: "success" },
+        { stage: "recall", status: "success" },
+        { stage: "rerank", status: "failed" },
+        { stage: "summary", status: "skipped" }
+      ])
+      .mockResolvedValueOnce([
+        { stage: "ingestion", status: "success" },
+        { stage: "enrichment", status: "success" },
+        { stage: "normalization", status: "success" },
+        { stage: "representation", status: "success" },
+        { stage: "recall", status: "success" },
+        { stage: "rerank", status: "success" },
+        { stage: "summary", status: "success" }
+      ]);
+
+    const result = await runDailyRecommendationPipeline({ sources: ["pubmed"] });
+
+    expect(result).toMatchObject({ status: "complete", disposition: "resumed" });
+    expect(mocks.runScheduledRefresh).not.toHaveBeenCalled();
+    expect(mocks.runRecall).not.toHaveBeenCalled();
+    expect(mocks.runRerank).toHaveBeenCalledTimes(1);
   });
 
   it("reports a pre-acquisition repository failure instead of completing an empty pipeline", async () => {

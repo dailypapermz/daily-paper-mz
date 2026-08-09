@@ -2,7 +2,8 @@
 import type {
   ProfileBuildService,
   ProfileRefreshRepository,
-  ProfileRefreshService
+  ProfileRefreshService,
+  ProfileRefreshTriggerValue
 } from "./types";
 
 const MONTHLY_REFRESH_DAYS = 30;
@@ -14,7 +15,15 @@ export class DefaultProfileRefreshService implements ProfileRefreshService {
   ) {}
 
   async runManualRefresh() {
-    const job = await this.repository.createRefreshJob({ trigger: "manual" });
+    return this.runRefresh("manual");
+  }
+
+  async runScheduledRefresh() {
+    return this.runRefresh("scheduled");
+  }
+
+  private async runRefresh(trigger: ProfileRefreshTriggerValue) {
+    const job = await this.repository.createRefreshJob({ trigger });
 
     try {
       const snapshot = await this.buildService.buildSnapshot();
