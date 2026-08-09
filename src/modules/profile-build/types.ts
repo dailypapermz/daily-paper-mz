@@ -1,4 +1,6 @@
-﻿export type ProfileInterestSegmentValue = "recent_core" | "stable_long_term" | "background";
+﻿import type { NegativeFeedbackSignal } from "../feedback/types";
+
+export type ProfileInterestSegmentValue = "recent_core" | "stable_long_term" | "background";
 export type ProfileRepresentationSourceValue = "structured_tags" | "title_abstract";
 
 export type ProfileEligibleItem = {
@@ -61,6 +63,14 @@ export type ProfileFeedbackLogRecord = {
   newValue?: Record<string, unknown>;
   metadata?: Record<string, unknown>;
   createdAt: string;
+  candidate?: {
+    paperIdentityKey: string;
+    title?: string;
+    abstractNote?: string;
+    contentRecallLabels: string[];
+    researchCategories: Array<"method" | "biology" | "resource" | "benchmark">;
+    researchKeywords: string[];
+  };
 };
 
 export type ProfileRefreshTriggerValue = "initial" | "manual" | "scheduled";
@@ -86,6 +96,7 @@ export type ProfileReminderCheckSummary = {
 export interface ProfileSnapshotRepository {
   listEligibleItems(): Promise<ProfileEligibleItem[]>;
   listFeedbackLogs(input?: { since?: Date; limit?: number }): Promise<ProfileFeedbackLogRecord[]>;
+  listTriageFeedbackLogs(): Promise<ProfileFeedbackLogRecord[]>;
   saveActiveSnapshot(input: {
     sourceLibraryVersion?: number;
     items: ProfileSnapshotItemInput[];
@@ -94,6 +105,8 @@ export interface ProfileSnapshotRepository {
   }): Promise<ProfileSnapshotSummary>;
   getActiveSnapshot(): Promise<ProfileSnapshotSummary | null>;
 }
+
+export type ProfileNegativeFeedbackSignal = NegativeFeedbackSignal;
 
 export interface ProfileBuildService {
   buildSnapshot(): Promise<ProfileSnapshotSummary>;

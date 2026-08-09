@@ -7,6 +7,7 @@ import type {
   RecallRunSummary
 } from "../../modules/ranking/recall/types";
 import type { ResearchTypeCategoryValue } from "../../modules/tagging/types";
+import { parseNegativeFeedbackSignals } from "../../modules/feedback/negative-feedback";
 
 const BATCH_SIZE = 500;
 
@@ -51,7 +52,8 @@ export class PrismaRecallRankingRepository implements RecallRankingRepository {
       researchTypePreferences: snapshot.researchTypePreferences.map((preference) => ({
         category: fromDbResearchCategory(preference.category),
         weight: preference.weight
-      }))
+      })),
+      negativeFeedbackSignals: parseNegativeFeedbackSignals(snapshot.summaryJson)
     };
   }
 

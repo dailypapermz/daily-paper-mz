@@ -4,6 +4,7 @@ import {
   computeTopicHeuristicScore
 } from "../topic-heuristics";
 import { tokenOverlapScore } from "../text-scoring";
+import { computeNegativeFeedbackPenalty } from "../../feedback/negative-feedback";
 import type {
   ActiveProfileSnapshotRecord,
   RecallCandidateRecord,
@@ -96,6 +97,11 @@ export function computeRecallFeatures(
     snapshot.contentRecallLabels
   );
   const topicHeuristic = computeTopicHeuristicScore(candidateText, preferredTopicReference);
+  const negativeFeedback = computeNegativeFeedbackPenalty({
+    candidateText,
+    contentRecallLabel: candidate.contentRecallLabel,
+    signals: snapshot.negativeFeedbackSignals
+  });
 
   const semanticScore = tokenOverlapScore(candidateText, profileText);
   const tagOverlapScore = tokenOverlapScore(candidate.contentRecallLabel ?? "", snapshot.contentRecallLabels.join(" "));
@@ -120,7 +126,8 @@ export function computeRecallFeatures(
   const recallScore = clampScore(
     baseRecallScore +
       topicHeuristic.score * TOPIC_ALIGNMENT_WEIGHT -
-      topicHeuristic.penalty * TOPIC_CONTEXT_PENALTY_WEIGHT
+      topicHeuristic.penalty * TOPIC_CONTEXT_PENALTY_WEIGHT -
+      negativeFeedback.penalty
   );
 
   const reasons = buildReasons({
@@ -128,7 +135,8 @@ export function computeRecallFeatures(
     tagOverlapScore,
     researchTypeScore,
     sourceScopeScore,
-    topicHeuristic
+    topicHeuristic,
+    negativeFeedback
   });
 
   return {
@@ -147,6 +155,7 @@ function buildReasons(input: {
   researchTypeScore: number;
   sourceScopeScore: number;
   topicHeuristic: ReturnType<typeof computeTopicHeuristicScore>;
+  negativeFeedback: ReturnType<typeof computeNegativeFeedbackPenalty>;
 }) {
   const reasons: string[] = [];
   if (input.semanticScore >= 0.15) {
@@ -169,6 +178,9 @@ function buildReasons(input: {
   }
   if (input.topicHeuristic.oncologyContextMatches.length > 0 && input.topicHeuristic.penalty > 0) {
     reasons.push("oncology_context_penalty");
+  }
+  if (input.negativeFeedback.penalty > 0) {
+    reasons.push("dismiss_similarity_penalty");
   }
 
   if (reasons.length === 0) {

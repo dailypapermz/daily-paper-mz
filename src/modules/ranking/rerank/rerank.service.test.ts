@@ -188,6 +188,55 @@ describe("computeRerankScores", () => {
 
     expect(highRecall.finalScore - lowRecall.finalScore).toBeCloseTo(0.2 * 0.22, 6);
   });
+
+  it("surfaces dismiss evidence without applying the penalty a second time", () => {
+    const candidate = {
+      candidateId: "candidate-oncology",
+      runId: "run-2",
+      title: "Oncology single-cell tumor atlas",
+      abstractNote: "Single-cell tumor atlas",
+      contentRecallLabel: "single-cell tumor atlas",
+      researchCategory: "biology" as const,
+      sources: ["pubmed" as const],
+      hasUserCorrectedOutput: false
+    };
+    const recalled = {
+      candidateId: "candidate-oncology",
+      recallScore: 0.32,
+      recallRank: 8,
+      selected: true
+    };
+    const profile = {
+      id: "snap-1",
+      builtAt: new Date().toISOString(),
+      recentCoreTexts: ["comparative genomics"],
+      stableLongTermTexts: ["cross-species regulatory conservation"],
+      highAttentionTexts: ["comparative epigenomics"],
+      contentRecallLabels: ["comparative genomics"],
+      researchTypePreferences: [{ category: "biology" as const, weight: 1 }],
+      averageCollectionWeight: 0.8
+    };
+    const negativeFeedbackSignals = [
+      {
+        paperIdentityKey: "doi:10.1000/dismissed",
+        sourceCandidateId: "dismissed-1",
+        sourceFeedbackLogId: "feedback-1",
+        representationText: "oncology single-cell tumor atlas",
+        contentRecallLabel: "single-cell tumor atlas",
+        effectiveAt: "2026-08-01T00:00:00.000Z"
+      }
+    ];
+
+    const baseline = computeRerankScores({ candidate, recalled, profile });
+    const withDismissEvidence = computeRerankScores({
+      candidate,
+      recalled,
+      profile: { ...profile, negativeFeedbackSignals }
+    });
+
+    expect(withDismissEvidence.finalScore).toBe(baseline.finalScore);
+    expect(withDismissEvidence.reasons).toContain("dismiss_similarity_penalty_applied_in_recall");
+  });
 });
 
 describe("DefaultRerankService", () => {

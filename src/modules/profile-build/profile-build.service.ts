@@ -1,4 +1,12 @@
 import { AppError } from "../../lib/errors";
+import {
+  MAX_CONTRIBUTING_NEGATIVE_SIGNALS,
+  MAX_NEGATIVE_FEEDBACK_PENALTY,
+  MAX_NEGATIVE_FEEDBACK_SIGNALS,
+  NEGATIVE_FEEDBACK_MODEL_VERSION,
+  NEGATIVE_FEEDBACK_WEIGHT_PER_SIGNAL
+} from "../feedback/negative-feedback";
+import type { NegativeFeedbackSignal } from "../feedback/types";
 import type {
   ProfileBuildService,
   ProfileEligibleItem,
@@ -18,11 +26,12 @@ export class DefaultProfileBuildService implements ProfileBuildService {
   async buildSnapshot() {
     const previousSnapshot = await this.repository.getActiveSnapshot();
     const previousBuiltAt = previousSnapshot ? new Date(previousSnapshot.builtAt) : undefined;
-    const [items, feedbackLogs] = await Promise.all([
+    const [items, feedbackLogs, triageFeedbackLogs] = await Promise.all([
       this.repository.listEligibleItems(),
       this.repository.listFeedbackLogs({
         since: previousBuiltAt
-      })
+      }),
+      this.repository.listTriageFeedbackLogs()
     ]);
 
     if (items.length === 0) {
@@ -95,6 +104,7 @@ export class DefaultProfileBuildService implements ProfileBuildService {
     }
 
     const feedbackSignals = extractFeedbackSignals(feedbackLogs);
+    const negativeFeedbackSignals = extractNegativeFeedbackSignals(triageFeedbackLogs);
     for (const [category, count] of feedbackSignals.categoryBoostCounts.entries()) {
       const existing = researchPreferenceByCategory.get(category) ?? {
         totalWeight: 0,
@@ -132,7 +142,16 @@ export class DefaultProfileBuildService implements ProfileBuildService {
           logsConsumed: feedbackSignals.logsConsumed,
           actionCounts: feedbackSignals.actionCounts,
           categoryBoostCounts: Object.fromEntries(feedbackSignals.categoryBoostCounts),
-          keywordHints: feedbackSignals.keywordHints
+          keywordHints: feedbackSignals.keywordHints,
+          negativeFeedback: {
+            modelVersion: NEGATIVE_FEEDBACK_MODEL_VERSION,
+            signalCount: negativeFeedbackSignals.length,
+            maxSignals: MAX_NEGATIVE_FEEDBACK_SIGNALS,
+            maxContributingSignals: MAX_CONTRIBUTING_NEGATIVE_SIGNALS,
+            weightPerSignal: NEGATIVE_FEEDBACK_WEIGHT_PER_SIGNAL,
+            maxPenalty: MAX_NEGATIVE_FEEDBACK_PENALTY,
+            signals: negativeFeedbackSignals
+          }
         }
       }
     });
@@ -266,6 +285,64 @@ function extractFeedbackSignals(logs: ProfileFeedbackLogRecord[]) {
     categoryBoostCounts,
     keywordHints
   };
+}
+
+export function extractNegativeFeedbackSignals(
+  logs: ProfileFeedbackLogRecord[]
+): NegativeFeedbackSignal[] {
+  const latestByPaper = new Map<string, ProfileFeedbackLogRecord>();
+  const sorted = [...logs].sort(compareFeedbackLogsNewestFirst);
+
+  for (const log of sorted) {
+    if (log.actionType !== "save" && log.actionType !== "dismiss" && log.actionType !== "promote") {
+      continue;
+    }
+
+    const paperIdentityKey = log.candidate?.paperIdentityKey ?? log.candidateId;
+    if (!latestByPaper.has(paperIdentityKey)) {
+      latestByPaper.set(paperIdentityKey, log);
+    }
+  }
+
+  return [...latestByPaper.entries()]
+    .filter(([, log]) => log.actionType === "dismiss")
+    .map(([paperIdentityKey, log]) => ({
+      paperIdentityKey,
+      sourceCandidateId: log.candidateId,
+      sourceFeedbackLogId: log.id,
+      representationText: buildNegativeRepresentation(log),
+      contentRecallLabel: log.candidate?.contentRecallLabels[0],
+      researchCategory: log.candidate?.researchCategories[0],
+      effectiveAt: log.createdAt
+    }))
+    .filter((signal) => signal.representationText.length > 0)
+    .slice(0, MAX_NEGATIVE_FEEDBACK_SIGNALS);
+}
+
+function compareFeedbackLogsNewestFirst(
+  left: ProfileFeedbackLogRecord,
+  right: ProfileFeedbackLogRecord
+): number {
+  const timeDifference = new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime();
+  if (timeDifference !== 0) {
+    return timeDifference;
+  }
+  return right.id.localeCompare(left.id);
+}
+
+function buildNegativeRepresentation(log: ProfileFeedbackLogRecord): string {
+  const candidate = log.candidate;
+  const parts = [
+    candidate?.title,
+    candidate?.abstractNote,
+    ...(candidate?.contentRecallLabels ?? []),
+    ...(candidate?.researchCategories.map((category) => `research:${category}`) ?? []),
+    ...(candidate?.researchKeywords ?? [])
+  ]
+    .map((value) => value?.trim())
+    .filter((value): value is string => Boolean(value));
+
+  return parts.join("\n").slice(0, 8_000);
 }
 
 function toObject(value: unknown): Record<string, unknown> {

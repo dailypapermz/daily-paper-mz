@@ -1,4 +1,5 @@
 import type { ResearchTypeCategoryValue } from "../../tagging/types";
+import type { NegativeFeedbackSignal } from "../../feedback/types";
 
 export type RerankRunStatusValue = "running" | "success" | "failed";
 
@@ -14,6 +15,7 @@ export type RerankProfileSnapshotRecord = {
     weight: number;
   }>;
   averageCollectionWeight: number;
+  negativeFeedbackSignals?: NegativeFeedbackSignal[];
 };
 
 export type RecalledCandidateRecord = {

@@ -1,5 +1,6 @@
 import { AppError } from "../../../lib/errors";
 import { tokenOverlapScore } from "../text-scoring";
+import { computeNegativeFeedbackPenalty } from "../../feedback/negative-feedback";
 import type {
   RecalledCandidateRecord,
   RerankCandidateRecord,
@@ -119,6 +120,12 @@ export function computeRerankScores(input: {
   profile: RerankProfileSnapshotRecord;
 }): RerankScoreBreakdown {
   const candidateText = `${input.candidate.title ?? ""} ${input.candidate.abstractNote ?? ""}`;
+  const negativeFeedback = computeNegativeFeedbackPenalty({
+    candidateText,
+    contentRecallLabel: input.candidate.contentRecallLabel,
+    signals: input.profile.negativeFeedbackSignals
+  });
+
   const recentCoreScore = tokenOverlapScore(candidateText, input.profile.recentCoreTexts.join(" "));
   const stableLongTermScore = tokenOverlapScore(
     candidateText,
@@ -174,7 +181,8 @@ export function computeRerankScores(input: {
       highAttentionScore,
       researchTypeScore,
       journalQualityScore,
-      userCorrectedScore
+      userCorrectedScore,
+      negativeFeedback
     }),
     featureWeights: { ...FEATURE_WEIGHTS }
   };
@@ -187,6 +195,7 @@ function buildReasons(input: {
   researchTypeScore: number;
   journalQualityScore: number;
   userCorrectedScore: number;
+  negativeFeedback: ReturnType<typeof computeNegativeFeedbackPenalty>;
 }) {
   const reasons: string[] = [];
   if (input.recallScore >= 0.2) {
@@ -206,6 +215,9 @@ function buildReasons(input: {
   }
   if (input.userCorrectedScore >= 1) {
     reasons.push("user_corrected_signal");
+  }
+  if (input.negativeFeedback.penalty > 0) {
+    reasons.push("dismiss_similarity_penalty_applied_in_recall");
   }
   if (reasons.length === 0) {
     reasons.push("baseline_rerank_score");

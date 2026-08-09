@@ -6,6 +6,7 @@ import {
   DefaultRecallRankingService
 } from "./recall-ranking.service";
 import { tokenOverlapScore } from "../text-scoring";
+import { computeNegativeFeedbackPenalty } from "../../feedback/negative-feedback";
 import type { ActiveProfileSnapshotRecord } from "./types";
 
 describe("tokenOverlapScore", () => {
@@ -203,6 +204,155 @@ describe("computeRecallFeatures", () => {
     expect(neutralFeature.recallScore).toBeGreaterThan(clinicalFeature.recallScore);
     expect(clinicalFeature.reasons).toContain("generic_clinical_noise_penalty");
     expect(clinicalFeature.reasons).not.toContain("domain_topic_alignment");
+  });
+
+  it("applies a bounded future penalty to content similar to effective dismissals", () => {
+    const snapshot: ActiveProfileSnapshotRecord = {
+      id: "snap-1",
+      builtAt: new Date().toISOString(),
+      representationTexts: ["comparative genomics cross-species regulatory conservation"],
+      contentRecallLabels: ["comparative genomics"],
+      researchTypePreferences: [{ category: "biology", weight: 1 }],
+      negativeFeedbackSignals: [
+        {
+          paperIdentityKey: "doi:10.1000/dismissed",
+          sourceCandidateId: "dismissed-1",
+          sourceFeedbackLogId: "feedback-1",
+          representationText: "oncology single-cell tumor atlas",
+          contentRecallLabel: "single-cell tumor atlas",
+          effectiveAt: "2026-08-01T00:00:00.000Z"
+        }
+      ]
+    };
+    const candidate = {
+      candidateId: "candidate-oncology",
+      runId: "run-2",
+      title: "Oncology single-cell tumor atlas",
+      abstractNote: "Single-cell tumor atlas",
+      contentRecallLabel: "single-cell tumor atlas",
+      researchCategory: "biology" as const,
+      sources: ["pubmed" as const]
+    };
+
+    const penalized = computeRecallFeatures(candidate, snapshot);
+    const baseline = computeRecallFeatures(candidate, {
+      ...snapshot,
+      negativeFeedbackSignals: []
+    });
+
+    expect(penalized.recallScore).toBeLessThan(baseline.recallScore);
+    expect(penalized.recallScore).toBeGreaterThan(0);
+    expect(penalized.reasons).toContain("dismiss_similarity_penalty");
+  });
+
+  it("combines profile-supported comparative genomics with bounded dismiss learning", () => {
+    const negativeFeedbackSignals = [
+      {
+        paperIdentityKey: "doi:10.1000/oncology-1",
+        sourceCandidateId: "dismissed-oncology-1",
+        sourceFeedbackLogId: "feedback-oncology-1",
+        representationText: "oncology single-cell tumor atlas",
+        contentRecallLabel: "single-cell tumor atlas",
+        effectiveAt: "2026-08-01T00:00:00.000Z"
+      },
+      {
+        paperIdentityKey: "doi:10.1000/oncology-2",
+        sourceCandidateId: "dismissed-oncology-2",
+        sourceFeedbackLogId: "feedback-oncology-2",
+        representationText: "oncology single-cell tumor atlas",
+        contentRecallLabel: "single-cell tumor atlas",
+        effectiveAt: "2026-08-02T00:00:00.000Z"
+      }
+    ];
+    const profile: ActiveProfileSnapshotRecord = {
+      id: "snap-comparative",
+      builtAt: new Date().toISOString(),
+      representationTexts: ["cross-species comparative genomics regulatory conservation"],
+      contentRecallLabels: ["comparative genomics"],
+      researchTypePreferences: [{ category: "biology", weight: 1 }]
+    };
+    const comparativeCandidate = {
+      candidateId: "candidate-comparative",
+      runId: "run-2",
+      title: "Cross-species comparative genomics of regulatory conservation",
+      abstractNote: "Evolutionary conservation across mammals",
+      contentRecallLabel: "comparative genomics",
+      researchCategory: "biology" as const,
+      sources: ["pubmed" as const]
+    };
+    const oncologyCandidate = {
+      candidateId: "candidate-oncology",
+      runId: "run-2",
+      title: "Oncology single-cell tumor atlas",
+      abstractNote: "Single-cell tumor atlas",
+      contentRecallLabel: "single-cell tumor atlas",
+      researchCategory: "biology" as const,
+      sources: ["pubmed" as const]
+    };
+
+    const comparativeBaseline = computeRecallFeatures(comparativeCandidate, profile);
+    const comparativeWithDismiss = computeRecallFeatures(comparativeCandidate, {
+      ...profile,
+      negativeFeedbackSignals
+    });
+    const oncologyBaseline = computeRecallFeatures(oncologyCandidate, profile);
+    const oncologyWithDismiss = computeRecallFeatures(oncologyCandidate, {
+      ...profile,
+      negativeFeedbackSignals
+    });
+    const expectedDismissPenalty = computeNegativeFeedbackPenalty({
+      candidateText: `${oncologyCandidate.title} ${oncologyCandidate.abstractNote}`,
+      contentRecallLabel: oncologyCandidate.contentRecallLabel,
+      signals: negativeFeedbackSignals
+    }).penalty;
+
+    expect(comparativeWithDismiss.recallScore).toBe(comparativeBaseline.recallScore);
+    expect(comparativeWithDismiss.reasons).toContain("domain_topic_alignment");
+    expect(comparativeWithDismiss.reasons).not.toContain("dismiss_similarity_penalty");
+    expect(oncologyWithDismiss.recallScore).toBeGreaterThan(0);
+    expect(oncologyBaseline.recallScore - oncologyWithDismiss.recallScore).toBeCloseTo(
+      expectedDismissPenalty,
+      6
+    );
+    expect(oncologyWithDismiss.reasons).toContain("oncology_context_penalty");
+    expect(oncologyWithDismiss.reasons).toContain("dismiss_similarity_penalty");
+    expect(comparativeWithDismiss.recallScore).toBeGreaterThan(oncologyWithDismiss.recallScore);
+  });
+
+  it("preserves explicit positive profile alignment for unrelated candidates", () => {
+    const baseSnapshot: ActiveProfileSnapshotRecord = {
+      id: "snap-1",
+      builtAt: new Date().toISOString(),
+      representationTexts: ["comparative genomics cross-species regulatory conservation"],
+      contentRecallLabels: ["comparative genomics"],
+      researchTypePreferences: [{ category: "biology", weight: 1 }]
+    };
+    const candidate = {
+      candidateId: "candidate-comparative",
+      runId: "run-2",
+      title: "Comparative genomics of cross-species enhancer conservation",
+      abstractNote: "Evolutionary regulatory conservation across mammals",
+      contentRecallLabel: "comparative genomics",
+      researchCategory: "biology" as const,
+      sources: ["pubmed" as const]
+    };
+    const signal = {
+      paperIdentityKey: "doi:10.1000/dismissed",
+      sourceCandidateId: "dismissed-1",
+      sourceFeedbackLogId: "feedback-1",
+      representationText: "oncology single-cell tumor atlas",
+      contentRecallLabel: "single-cell tumor atlas",
+      effectiveAt: "2026-08-01T00:00:00.000Z"
+    };
+
+    const withoutDismiss = computeRecallFeatures(candidate, baseSnapshot);
+    const withDismiss = computeRecallFeatures(candidate, {
+      ...baseSnapshot,
+      negativeFeedbackSignals: [signal]
+    });
+
+    expect(withDismiss.recallScore).toBe(withoutDismiss.recallScore);
+    expect(withDismiss.reasons).not.toContain("dismiss_similarity_penalty");
   });
 });
 
