@@ -146,6 +146,70 @@ export class PrismaProfileSnapshotRepository implements ProfileSnapshotRepositor
     }));
   }
 
+  async listTriageFeedbackLogs() {
+    const rows = await this.db.candidateFeedbackLog.findMany({
+      where: {
+        actionType: {
+          in: ["SAVE", "DISMISS", "PROMOTE"]
+        }
+      },
+      include: {
+        candidate: {
+          select: {
+            canonicalKey: true,
+            title: true,
+            abstractNote: true,
+            labels: {
+              select: {
+                labelType: true,
+                contentRecallLabel: true,
+                researchCategory: true,
+                primaryKeyword: true,
+                secondaryKeyword: true
+              }
+            }
+          }
+        }
+      },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }]
+    });
+
+    return rows.map((row) => ({
+      id: row.id,
+      runId: row.runId,
+      candidateId: row.candidateId,
+      actionType: fromDbFeedbackAction(row.actionType),
+      oldValue: toObject(row.oldValueJson),
+      newValue: toObject(row.newValueJson),
+      metadata: toObject(row.metadataJson),
+      createdAt: toIsoDate(row.createdAt),
+      candidate: {
+        paperIdentityKey: row.candidate.canonicalKey,
+        title: row.candidate.title ?? undefined,
+        abstractNote: row.candidate.abstractNote ?? undefined,
+        contentRecallLabels: row.candidate.labels
+          .filter((label) => label.labelType === "CONTENT_RECALL")
+          .map((label) => label.contentRecallLabel)
+          .filter((value): value is string => Boolean(value)),
+        researchCategories: row.candidate.labels
+          .filter((label) => label.labelType === "RESEARCH_TYPE")
+          .map((label) => label.researchCategory)
+          .filter(
+            (value): value is "METHOD" | "BIOLOGY" | "RESOURCE" | "BENCHMARK" =>
+              value === "METHOD" ||
+              value === "BIOLOGY" ||
+              value === "RESOURCE" ||
+              value === "BENCHMARK"
+          )
+          .map((value) => fromDbResearchCategory(value)),
+        researchKeywords: row.candidate.labels
+          .filter((label) => label.labelType === "RESEARCH_TYPE")
+          .flatMap((label) => [label.primaryKeyword, label.secondaryKeyword])
+          .filter((value): value is string => Boolean(value))
+      }
+    }));
+  }
+
   async saveActiveSnapshot(input: {
     sourceLibraryVersion?: number;
     items: Array<{

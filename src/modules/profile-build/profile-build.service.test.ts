@@ -1,14 +1,22 @@
 ﻿import { describe, expect, it } from "vitest";
 
 import { AppError } from "../../lib/errors";
-import { DefaultProfileBuildService } from "./profile-build.service";
+import {
+  DefaultProfileBuildService,
+  extractNegativeFeedbackSignals
+} from "./profile-build.service";
 import type { ProfileSnapshotRepository } from "./types";
 
 class FakeProfileSnapshotRepository implements ProfileSnapshotRepository {
+  savedInput?: Parameters<ProfileSnapshotRepository["saveActiveSnapshot"]>[0];
+
   constructor(
     private readonly items: Awaited<ReturnType<ProfileSnapshotRepository["listEligibleItems"]>>,
     private readonly active: Awaited<ReturnType<ProfileSnapshotRepository["getActiveSnapshot"]>> = null,
-    private readonly feedbackLogs: Awaited<ReturnType<ProfileSnapshotRepository["listFeedbackLogs"]>> = []
+    private readonly feedbackLogs: Awaited<ReturnType<ProfileSnapshotRepository["listFeedbackLogs"]>> = [],
+    private readonly triageFeedbackLogs: Awaited<
+      ReturnType<ProfileSnapshotRepository["listTriageFeedbackLogs"]>
+    > = []
   ) {}
 
   async listEligibleItems() {
@@ -21,6 +29,10 @@ class FakeProfileSnapshotRepository implements ProfileSnapshotRepository {
       : this.feedbackLogs;
 
     return filtered.slice(0, input?.limit ?? 500);
+  }
+
+  async listTriageFeedbackLogs() {
+    return this.triageFeedbackLogs;
   }
 
   async saveActiveSnapshot(input: {
@@ -44,6 +56,7 @@ class FakeProfileSnapshotRepository implements ProfileSnapshotRepository {
     }>;
     summaryJson: Record<string, unknown>;
   }) {
+    this.savedInput = input;
     return {
       id: "snapshot-1",
       status: "active" as const,
@@ -151,4 +164,226 @@ describe("DefaultProfileBuildService", () => {
 
     expect(snapshot.researchTypePreferences.some((entry) => entry.category === "biology")).toBe(true);
   });
+
+  it("persists deterministic bounded negative signals during profile refresh", async () => {
+    const triageLogs = [
+      triageLog({
+        id: "dismiss-1",
+        candidateId: "candidate-1",
+        paperIdentityKey: "doi:10.1000/one",
+        actionType: "dismiss",
+        createdAt: "2026-08-01T00:00:00.000Z",
+        title: "Oncology single-cell atlas",
+        contentRecallLabel: "single-cell tumor atlas"
+      })
+    ];
+    const repo = new FakeProfileSnapshotRepository([eligibleItem()], null, [], triageLogs);
+    const service = new DefaultProfileBuildService(repo);
+
+    await service.buildSnapshot();
+    const firstSummary = repo.savedInput?.summaryJson;
+    await service.buildSnapshot();
+    const secondSummary = repo.savedInput?.summaryJson;
+
+    expect(readNegativeFeedback(firstSummary)).toEqual(readNegativeFeedback(secondSummary));
+    expect(firstSummary).toMatchObject({
+      feedbackIntegration: {
+        negativeFeedback: {
+          modelVersion: "bounded-token-overlap-v1",
+          signalCount: 1,
+          maxSignals: 50,
+          maxContributingSignals: 3,
+          weightPerSignal: 0.08,
+          maxPenalty: 0.18,
+          signals: [
+            {
+              paperIdentityKey: "doi:10.1000/one",
+              sourceFeedbackLogId: "dismiss-1",
+              contentRecallLabel: "single-cell tumor atlas"
+            }
+          ]
+        }
+      }
+    });
+  });
 });
+
+describe("extractNegativeFeedbackSignals", () => {
+  it("uses latest triage action across runs for the same paper", () => {
+    const base = {
+      candidateId: "candidate-old",
+      paperIdentityKey: "doi:10.1000/shared",
+      title: "Shared paper"
+    };
+
+    expect(
+      extractNegativeFeedbackSignals([
+        triageLog({
+          ...base,
+          id: "dismiss-old",
+          actionType: "dismiss",
+          createdAt: "2026-08-01T00:00:00.000Z"
+        }),
+        triageLog({
+          ...base,
+          candidateId: "candidate-new",
+          id: "save-new",
+          actionType: "save",
+          createdAt: "2026-08-02T00:00:00.000Z"
+        })
+      ])
+    ).toEqual([]);
+
+    expect(
+      extractNegativeFeedbackSignals([
+        triageLog({
+          ...base,
+          id: "dismiss-old",
+          actionType: "dismiss",
+          createdAt: "2026-08-01T00:00:00.000Z"
+        }),
+        triageLog({
+          ...base,
+          candidateId: "candidate-new",
+          id: "promote-new",
+          actionType: "promote",
+          createdAt: "2026-08-02T00:00:00.000Z"
+        })
+      ])
+    ).toEqual([]);
+
+    expect(
+      extractNegativeFeedbackSignals([
+        triageLog({
+          ...base,
+          id: "promote-old",
+          actionType: "promote",
+          createdAt: "2026-08-01T00:00:00.000Z"
+        }),
+        triageLog({
+          ...base,
+          candidateId: "candidate-new",
+          id: "dismiss-new",
+          actionType: "dismiss",
+          createdAt: "2026-08-02T00:00:00.000Z"
+        })
+      ])
+    ).toHaveLength(1);
+  });
+
+  it("does not let repeated actions for one paper accumulate", () => {
+    const signals = extractNegativeFeedbackSignals([
+      triageLog({
+        id: "dismiss-1",
+        candidateId: "candidate-1",
+        paperIdentityKey: "doi:10.1000/repeated",
+        actionType: "dismiss",
+        createdAt: "2026-08-01T00:00:00.000Z",
+        title: "Repeated paper"
+      }),
+      triageLog({
+        id: "dismiss-2",
+        candidateId: "candidate-1",
+        paperIdentityKey: "doi:10.1000/repeated",
+        actionType: "dismiss",
+        createdAt: "2026-08-02T00:00:00.000Z",
+        title: "Repeated paper"
+      })
+    ]);
+
+    expect(signals).toHaveLength(1);
+    expect(signals[0].sourceFeedbackLogId).toBe("dismiss-2");
+  });
+
+  it("keeps label edits orthogonal to the latest triage action", () => {
+    const signals = extractNegativeFeedbackSignals([
+      triageLog({
+        id: "dismiss-1",
+        candidateId: "candidate-1",
+        paperIdentityKey: "doi:10.1000/edited",
+        actionType: "dismiss",
+        createdAt: "2026-08-01T00:00:00.000Z",
+        title: "Edited paper"
+      }),
+      triageLog({
+        id: "label-1",
+        candidateId: "candidate-1",
+        paperIdentityKey: "doi:10.1000/edited",
+        actionType: "label_edit",
+        createdAt: "2026-08-02T00:00:00.000Z",
+        title: "Edited paper"
+      })
+    ]);
+
+    expect(signals).toHaveLength(1);
+  });
+
+  it("keeps only the newest bounded set of effective dismiss signals", () => {
+    const signals = extractNegativeFeedbackSignals(
+      Array.from({ length: 60 }, (_, index) =>
+        triageLog({
+          id: `dismiss-${index.toString().padStart(2, "0")}`,
+          candidateId: `candidate-${index}`,
+          paperIdentityKey: `doi:10.1000/${index}`,
+          actionType: "dismiss",
+          createdAt: new Date(Date.UTC(2026, 7, index + 1)).toISOString(),
+          title: `Dismissed paper ${index}`
+        })
+      )
+    );
+
+    expect(signals).toHaveLength(50);
+    expect(signals[0].paperIdentityKey).toBe("doi:10.1000/59");
+    expect(signals.at(-1)?.paperIdentityKey).toBe("doi:10.1000/10");
+  });
+});
+
+function eligibleItem(): Awaited<ReturnType<ProfileSnapshotRepository["listEligibleItems"]>>[number] {
+  return {
+    itemId: "item-1",
+    zoteroItemKey: "A",
+    title: "Comparative genomics",
+    abstractNote: "Cross-species regulatory conservation",
+    dateAdded: new Date("2026-08-01T00:00:00.000Z"),
+    libraryVersion: 12,
+    collectionPriorities: ["primary"],
+    attentionLevel: 2,
+    contentRecallLabels: ["comparative genomics"],
+    researchCategories: ["biology"],
+    researchKeywords: ["cross-species"]
+  };
+}
+
+function triageLog(input: {
+  id: string;
+  candidateId: string;
+  paperIdentityKey: string;
+  actionType: "save" | "dismiss" | "promote" | "label_edit";
+  createdAt: string;
+  title?: string;
+  contentRecallLabel?: string;
+}): Awaited<ReturnType<ProfileSnapshotRepository["listTriageFeedbackLogs"]>>[number] {
+  return {
+    id: input.id,
+    runId: `run-${input.candidateId}`,
+    candidateId: input.candidateId,
+    actionType: input.actionType,
+    createdAt: input.createdAt,
+    candidate: {
+      paperIdentityKey: input.paperIdentityKey,
+      title: input.title,
+      abstractNote: input.title ? `${input.title} abstract` : undefined,
+      contentRecallLabels: input.contentRecallLabel ? [input.contentRecallLabel] : [],
+      researchCategories: [],
+      researchKeywords: []
+    }
+  };
+}
+
+function readNegativeFeedback(summary: Record<string, unknown> | undefined): unknown {
+  const feedbackIntegration = summary?.feedbackIntegration;
+  if (!feedbackIntegration || typeof feedbackIntegration !== "object" || Array.isArray(feedbackIntegration)) {
+    return undefined;
+  }
+  return (feedbackIntegration as Record<string, unknown>).negativeFeedback;
+}

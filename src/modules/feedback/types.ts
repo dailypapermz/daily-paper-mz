@@ -1,5 +1,15 @@
 export type FeedbackActionValue = "save" | "dismiss" | "promote" | "label_edit" | "summary_edit";
 
+export type NegativeFeedbackSignal = {
+  paperIdentityKey: string;
+  sourceCandidateId: string;
+  sourceFeedbackLogId: string;
+  representationText: string;
+  contentRecallLabel?: string;
+  researchCategory?: "method" | "biology" | "resource" | "benchmark";
+  effectiveAt: string;
+};
+
 export type FeedbackLogRecord = {
   id: string;
   runId: string;

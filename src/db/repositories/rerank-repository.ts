@@ -7,6 +7,7 @@ import type {
   RerankRunSummary
 } from "../../modules/ranking/rerank/types";
 import type { ResearchTypeCategoryValue } from "../../modules/tagging/types";
+import { parseNegativeFeedbackSignals } from "../../modules/feedback/negative-feedback";
 
 const BATCH_SIZE = 500;
 
@@ -81,7 +82,8 @@ export class PrismaRerankRepository implements RerankRepository {
         category: fromDbResearchCategory(pref.category),
         weight: pref.weight
       })),
-      averageCollectionWeight
+      averageCollectionWeight,
+      negativeFeedbackSignals: parseNegativeFeedbackSignals(snapshot.summaryJson)
     };
   }
 
