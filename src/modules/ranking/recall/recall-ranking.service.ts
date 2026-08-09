@@ -13,6 +13,9 @@ import type {
   RecallResultRecord
 } from "./types";
 
+const TOPIC_ALIGNMENT_WEIGHT = 0.15;
+const TOPIC_CONTEXT_PENALTY_WEIGHT = 0.3;
+
 export class DefaultRecallRankingService implements RecallRankingService {
   constructor(private readonly repository: RecallRankingRepository) {}
 
@@ -94,11 +97,7 @@ export function computeRecallFeatures(
   );
   const topicHeuristic = computeTopicHeuristicScore(candidateText, preferredTopicReference);
 
-  const semanticScore = clampScore(
-    tokenOverlapScore(candidateText, profileText) * 0.72 +
-      topicHeuristic.score * 0.28 -
-      topicHeuristic.penalty
-  );
+  const semanticScore = tokenOverlapScore(candidateText, profileText);
   const tagOverlapScore = tokenOverlapScore(candidate.contentRecallLabel ?? "", snapshot.contentRecallLabels.join(" "));
 
   const researchPreference = candidate.researchCategory
@@ -118,7 +117,11 @@ export function computeRecallFeatures(
       researchTypeScore * 0.15 +
       sourceScopeScore * 0.1;
 
-  const recallScore = clampScore(baseRecallScore - topicHeuristic.penalty * 0.12);
+  const recallScore = clampScore(
+    baseRecallScore +
+      topicHeuristic.score * TOPIC_ALIGNMENT_WEIGHT -
+      topicHeuristic.penalty * TOPIC_CONTEXT_PENALTY_WEIGHT
+  );
 
   const reasons = buildReasons({
     semanticScore,
@@ -163,6 +166,9 @@ function buildReasons(input: {
   }
   if (input.topicHeuristic.penalty >= 0.07) {
     reasons.push("generic_clinical_noise_penalty");
+  }
+  if (input.topicHeuristic.oncologyContextMatches.length > 0 && input.topicHeuristic.penalty > 0) {
+    reasons.push("oncology_context_penalty");
   }
 
   if (reasons.length === 0) {

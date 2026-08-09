@@ -89,11 +89,11 @@ describe("computeRerankScores", () => {
     });
 
     expect(aligned.finalScore).toBeGreaterThan(noisy.finalScore);
-    expect(aligned.reasons).toContain("domain_topic_alignment");
-    expect(noisy.reasons).not.toContain("domain_topic_alignment");
+    expect(aligned.reasons).toContain("recent_core_alignment");
+    expect(noisy.reasons).not.toContain("recent_core_alignment");
   });
 
-  it("pushes clinical management reviews below neutral technical candidates", () => {
+  it("inherits topic filtering through recall without applying a second topic adjustment", () => {
     const profile = {
       id: "snap-1",
       builtAt: new Date().toISOString(),
@@ -134,7 +134,7 @@ describe("computeRerankScores", () => {
       },
       recalled: {
         candidateId: "candidate-clinical",
-        recallScore: 0.4,
+        recallScore: 0.2,
         recallRank: 1,
         selected: true
       },
@@ -142,8 +142,51 @@ describe("computeRerankScores", () => {
     });
 
     expect(neutral.finalScore).toBeGreaterThan(clinical.finalScore);
-    expect(clinical.reasons).toContain("generic_clinical_noise_penalty");
-    expect(clinical.reasons).not.toContain("domain_topic_alignment");
+    expect(clinical.featureWeights.topicHeuristic).toBeUndefined();
+    expect(clinical.featureWeights.genericNoisePenalty).toBeUndefined();
+  });
+
+  it("changes final score only by the recall weight when only recall score changes", () => {
+    const input = {
+      candidate: {
+        candidateId: "candidate-1",
+        runId: "run-1",
+        title: "Cross-species comparative genomics",
+        abstractNote: "Evolutionary conservation",
+        sources: ["pubmed" as const],
+        hasUserCorrectedOutput: false
+      },
+      profile: {
+        id: "snap-1",
+        builtAt: new Date().toISOString(),
+        recentCoreTexts: ["cross-species comparative genomics"],
+        stableLongTermTexts: ["evolutionary conservation"],
+        highAttentionTexts: ["regulatory genomics"],
+        contentRecallLabels: ["comparative genomics"],
+        researchTypePreferences: [],
+        averageCollectionWeight: 0.8
+      }
+    };
+    const lowRecall = computeRerankScores({
+      ...input,
+      recalled: {
+        candidateId: "candidate-1",
+        recallScore: 0.3,
+        recallRank: 2,
+        selected: true
+      }
+    });
+    const highRecall = computeRerankScores({
+      ...input,
+      recalled: {
+        candidateId: "candidate-1",
+        recallScore: 0.5,
+        recallRank: 1,
+        selected: true
+      }
+    });
+
+    expect(highRecall.finalScore - lowRecall.finalScore).toBeCloseTo(0.2 * 0.22, 6);
   });
 });
 
