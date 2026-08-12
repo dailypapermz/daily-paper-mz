@@ -1,5 +1,7 @@
 # Cloud Mode A: GitHub Actions daily job
 
+> **Classification: operational reference.** Dated acceptance statements below are historical and do not describe current production health. See `docs/PROJECT_STATE.md` for verified current evidence.
+
 ## Real acceptance status
 
 This checkout has no configured Git remote and no GitHub or Neon credentials. The workflow has therefore not been manually dispatched against Neon. Real ingestion, persisted stages/recommendations/summaries, same-date `already_succeeded`, database uniqueness, and remote log redaction are not claimed as accepted.

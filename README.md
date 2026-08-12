@@ -1,13 +1,22 @@
 # Daily Paper
 
-Daily literature triage MVP centered on Zotero, with two coupled pipelines:
-- profile pipeline (low-frequency): Zotero sync, collection priorities, profile snapshot refresh
-- daily pipeline (high-frequency): ingestion, enrichment, dedup, summary/labels, recall + rerank
+Daily literature triage centered on Zotero, with a profile pipeline and a persisted daily recommendation pipeline.
+
+## Project documentation
+
+Use these files instead of inferring project status from a workspace, branch, historical prompt, or draft pull request:
+
+- [Current integrated and production state](docs/PROJECT_STATE.md)
+- [Current integrated architecture](docs/ARCHITECTURE.md)
+- [Planned, in-development, and experimental work](docs/ROADMAP.md)
+- [Accepted decisions and rationale](docs/DECISIONS.md)
+
+The latest remote `origin/master` remains the authoritative integrated code baseline. README is the project entry point, not an independent completion or production-status ledger.
 
 ## Stack
 - Next.js + TypeScript
-- Prisma
-- SQLite by default for local MVP (`DATABASE_URL` can point to PostgreSQL)
+- Prisma with independent provider roots
+- SQLite for Local Mode and PostgreSQL/Neon for Cloud Mode; each has its own schema, generated client, and migration history
 
 ## Local Setup
 1. Install dependencies:
@@ -40,7 +49,7 @@ This orchestrates:
 1. Zotero sync
 2. collection priority read/effective summary
 3. manual profile refresh (new active snapshot)
-4. daily pipeline (ingest -> enrich -> dedup -> summary/labels -> recall -> rerank)
+4. daily pipeline (ingest -> enrich -> dedup -> labels -> profile refresh -> recall -> rerank -> selected summaries)
 5. dashboard feed snapshot readback
 
 ### Manual route-by-route path
@@ -98,7 +107,7 @@ The workflow validates/generates the PostgreSQL client, applies the independent 
 
 For a controlled provider rollback to NVIDIA NIM, set `LLM_PROVIDER=nvidia`, restore the NVIDIA base/model Variables, and retain `NVIDIA_API_KEY`. The legacy generic `openai-compatible` provider also remains available through `LLM_API_KEY`. The deprecated `LLM_API_BASE_URL` Variable remains a fallback when `LLM_BASE_URL` is unset.
 
-An empty Cloud Mode database must build its low-frequency profile before recall can succeed. Run the separate **Cloud profile maintenance** workflow with `operation=sync`, use the Access-protected `/collections` page to select at least one primary or secondary collection, and then run the workflow again with `operation=refresh`. This workflow is manual-only and does not run the daily pipeline.
+An empty Cloud Mode database must sync Zotero and select at least one primary or secondary collection before recall can succeed. Use the separate **Cloud profile maintenance** workflow with `operation=sync`, then use the Access-protected `/collections` page to set priorities. A manual `operation=refresh` remains useful for bootstrap validation; the integrated daily pipeline also refreshes the profile immediately before recall. The profile workflow is manual-only and does not run the daily pipeline.
 
 ## Cloud Mode dashboard on Cloudflare Workers
 
@@ -144,20 +153,21 @@ npm run build
 ## Known Limitations
 - External integrations depend on real credentials/network (`ZOTERO_KEY`, source APIs, optional LLM/enrichment APIs).
 - Providers are honest about unavailability; they degrade gracefully and record failure metadata.
-- Daily ingestion is currently source-triggered; orchestration runs configured sources sequentially and aggregates outcomes.
-- Single-user MVP data model and UI; no auth/tenant partitioning yet.
-- Ranking remains explainable linear/semi-linear by design; no opaque model training in MVP.
+- Aggregate daily ingestion fetches configured sources concurrently and can continue with explicit partial-source warnings.
+- The application remains single-user and has no application-level tenant partitioning; Cloud Mode relies on owner-scoped Cloudflare Access at the edge.
+- Integrated recall is lexical/token-overlap based and reranking remains explainable linear/semi-linear; BM25, dense embeddings, and hybrid retrieval are not integrated.
+- Current production health and evidence gaps are maintained only in `docs/PROJECT_STATE.md`.
 
 ## Extension Points
-- Swap SQLite for PostgreSQL via `DATABASE_URL`.
-- Replace unavailable provider adapters with real production integrations.
+- Extend Local or Cloud persistence while preserving their independent Prisma schemas and migration histories.
+- Add or replace source, enrichment, and LLM providers behind the existing provider contracts.
 - Add richer source scopes and additional ingestion adapters.
-- Introduce stronger multi-source joint-run orchestration if needed.
-- Extend feedback consumption logic during profile refresh with stricter controls or weighting.
+- Evaluate retrieval or feedback changes through an approved roadmap item before changing ranking semantics.
 
 ## Directory Highlights
 - `src/app`: pages and thin API handlers
 - `src/modules`: business modules (`zotero-sync`, `collections`, `profile-build`, `ingestion`, `ranking`, `feedback`, `scheduler`)
 - `src/db/repositories`: Prisma-backed repository layer
 - `src/lib`: config, logging, errors, shared utilities/types
-- `prisma/schema.prisma`: current schema and relations
+- `prisma/schema.prisma`: Local Mode SQLite schema
+- `prisma/postgresql/schema.prisma`: Cloud Mode PostgreSQL schema

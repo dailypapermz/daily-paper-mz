@@ -1,5 +1,7 @@
 # Agent Rules
 
+> **Classification: historical product-rules reference.** This file is not the current Codex governance or project-state authority. Use `AGENTS.md`, `docs/PROJECT_STATE.md`, and `docs/ARCHITECTURE.md`; current integrated code at the verified `origin/master` wins on conflict.
+
 You are working on a daily literature triage app centered on a Zotero library.
 
 Follow these rules strictly.

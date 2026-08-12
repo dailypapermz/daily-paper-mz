@@ -1,5 +1,7 @@
 # Cloud Mode A architecture
 
+> **Classification: historical design/reference material.** Dated implementation and acceptance statements below are not current project state. See `docs/ARCHITECTURE.md` and `docs/PROJECT_STATE.md`.
+
 Implementation update (2026-07-27): PR 4 now includes the OpenNext Worker runtime, Neon adapter client, capability/request guards, health split, and deployment runbook. Real GitHub/Neon/Cloudflare account acceptance is still pending credentials.
 
 Status: approved architecture; PR 1–PR 3 contracts are implemented. Worker deployment remains future PR 4 scope.

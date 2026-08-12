@@ -1,5 +1,7 @@
 # MVP Architecture Freeze (DAI-20)
 
+> **Classification: historical architecture baseline.** Its original source-of-truth claim is superseded. Current integrated architecture is documented in `docs/ARCHITECTURE.md`, with current state in `docs/PROJECT_STATE.md`.
+
 This document freezes the MVP architecture, data model, and module boundaries for the daily literature triage app.
 It is the source of truth for implementation issues that follow.
 

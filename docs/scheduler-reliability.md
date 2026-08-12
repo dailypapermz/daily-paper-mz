@@ -1,5 +1,7 @@
 # Scheduler reliability
 
+> **Classification: operational design/runbook reference.** It describes intended scheduler mechanics. Deployment and current runtime health are tracked separately in `docs/PROJECT_STATE.md`.
+
 The production daily trigger has two independent clocks but one existing GitHub Actions execution path:
 
 ```text

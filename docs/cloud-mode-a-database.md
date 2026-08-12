@@ -1,5 +1,7 @@
 # Cloud Mode A database contract
 
+> **Classification: technical/operational reference.** This file describes the dual-database contract but does not maintain current feature or production status. See `docs/PROJECT_STATE.md` and `docs/ARCHITECTURE.md`.
+
 ## Scope
 
 PR 2 adds PostgreSQL persistence for Cloud Mode without changing the Local Mode SQLite schema, migration history, database file, or runtime workflow. It does not deploy GitHub Actions or Cloudflare Workers and does not import historical SQLite data.

@@ -1,5 +1,7 @@
 # Project: Daily Literature Triage App Based on Zotero
 
+> **Classification: historical product-design reference.** This file does not maintain current implementation or production status. Use `docs/PROJECT_STATE.md`, `docs/ARCHITECTURE.md`, `docs/ROADMAP.md`, and `docs/DECISIONS.md`.
+
 ## Goal
 
 This project builds a **daily literature triage web app** centered on the user's Zotero library.
