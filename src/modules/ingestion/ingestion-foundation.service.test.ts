@@ -1,6 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { AppError } from "../../lib/errors";
+import { logger } from "../../lib/logging";
+import { ArxivSourceAdapter } from "./arxiv-adapter";
 import {
   buildDailyRunRequestKey,
   createAdapterMap,
@@ -34,6 +36,11 @@ class FakeRepository implements DailyIngestionRepository {
     sourcePayload: Record<string, unknown>;
     authors: string[];
   }> = [];
+  private cursorReadCounts = new Map<string, number>();
+  pipelineInitialization?: {
+    ingestionStatus: "success" | "partial";
+    ingestionDetails: Record<string, unknown>;
+  };
 
   seedCursor(source: "biorxiv" | "arxiv" | "pubmed" | "journal", value: Date) {
     this.cursors.set(source, value);
@@ -78,6 +85,7 @@ class FakeRepository implements DailyIngestionRepository {
       ingestionDetails: Record<string, unknown>;
     };
   }) {
+    this.pipelineInitialization = input.pipelineInitialization;
     const candidatesCount = await this.saveCandidates({ runId: input.runId, entries: input.entries });
     for (const checkpoint of input.checkpoints) {
       await this.commitSourceSuccess(checkpoint);
@@ -166,7 +174,12 @@ class FakeRepository implements DailyIngestionRepository {
   }
 
   async getSourceCursor(source: "biorxiv" | "arxiv" | "pubmed" | "journal") {
+    this.cursorReadCounts.set(source, (this.cursorReadCounts.get(source) ?? 0) + 1);
     return this.cursors.get(source);
+  }
+
+  getSourceCursorReadCount(source: "biorxiv" | "arxiv" | "pubmed" | "journal") {
+    return this.cursorReadCounts.get(source) ?? 0;
   }
 
   async listSeenExternalIds(source: "biorxiv" | "arxiv" | "pubmed" | "journal", externalIds: string[]) {
@@ -187,6 +200,11 @@ class FakeRepository implements DailyIngestionRepository {
 }
 
 describe("DefaultDailyIngestionService", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
   it("builds one stable key for equivalent source sets", () => {
     const date = new Date("2026-03-07T00:00:00.000Z");
     expect(buildDailyRunRequestKey(date, ["pubmed", "arxiv"], true)).toBe(
@@ -347,6 +365,54 @@ describe("DefaultDailyIngestionService", () => {
       expect.objectContaining({ source: "arxiv", status: "success", candidatesCount: 1 })
     ]);
     expect(result.candidates.map((candidate) => candidate.source)).toEqual(["arxiv"]);
+  });
+
+  it("classifies missing arXiv configuration before cursor or network access", async () => {
+    const repository = new FakeRepository();
+    const fetchMock = vi.fn();
+    const warn = vi.spyOn(logger, "warn").mockImplementation(() => undefined);
+    vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
+    const service = new DefaultDailyIngestionService(createAdapterMap([
+      new ArxivSourceAdapter({ categoryScopes: [] }),
+      {
+        source: "pubmed",
+        async fetchCandidatesForDay() {
+          return [];
+        }
+      }
+    ]), repository);
+
+    const result = await service.runAggregatedIngestion({
+      runDate: "2026-03-07T00:00:00.000Z",
+      sources: ["arxiv", "pubmed"]
+    });
+
+    const diagnostic = {
+      source: "arxiv" as const,
+      failureCode: "ARXIV_SCOPE_REQUIRED" as const,
+      stage: "configuration" as const,
+      failureCategory: "configuration_error" as const,
+      retryable: false
+    };
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(repository.getSourceCursorReadCount("arxiv")).toBe(0);
+    expect(repository.getSourceCursorReadCount("pubmed")).toBe(1);
+    expect(result.sourceSummaries).toEqual([
+      {
+        source: "arxiv",
+        status: "failed",
+        candidatesCount: 0,
+        errorMessage: "arXiv category scope configuration is missing",
+        diagnostic
+      },
+      expect.objectContaining({ source: "pubmed", status: "success" })
+    ]);
+    expect(repository.pipelineInitialization).toMatchObject({
+      ingestionStatus: "partial",
+      ingestionDetails: { sources: result.sourceSummaries }
+    });
+    expect(warn).toHaveBeenCalledWith("Daily arXiv source ingestion failed", diagnostic);
+
   });
 
   it("uses first-seen journal IDs after a bounded bootstrap", async () => {

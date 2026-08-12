@@ -301,7 +301,7 @@ test("cloud daily workflow fixes cloud capabilities and references secrets symbo
   for (const name of ["DATABASE_URL", "ZOTERO_ID", "ZOTERO_KEY"]) {
     assert.match(workflow, new RegExp(`\\$\\{\\{ secrets\\.${name} \\}\\}`));
   }
-  for (const name of ["LLM_MODEL", "NOTIFICATION_DASHBOARD_URL"]) {
+  for (const name of ["LLM_MODEL", "ARXIV_CATEGORY_SCOPES", "NOTIFICATION_DASHBOARD_URL"]) {
     assert.match(workflow, new RegExp(`\\$\\{\\{ vars\\.${name} \\}\\}`));
   }
   assert.match(workflow, /LLM_PROVIDER: \$\{\{ vars\.LLM_PROVIDER \}\}/);

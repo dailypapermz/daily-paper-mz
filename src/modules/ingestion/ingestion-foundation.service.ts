@@ -1,4 +1,6 @@
 import { AppError } from "../../lib/errors";
+import { logger } from "../../lib/logging";
+import { arxivFailureMessage, classifyArxivFailure } from "./arxiv-diagnostics";
 import { isCandidateInUtcDay, normalizeAdapterCandidate, resolveUtcDayWindow } from "./new-today";
 import type {
   AggregatedSourceIngestionSummary,
@@ -65,7 +67,7 @@ export class DefaultDailyIngestionService implements DailyIngestionService {
         disposition: lease.disposition
       };
     } catch (error) {
-      await this.handleRunFailure(runRecord.id, runRecord.attempt, error);
+      await this.handleRunFailure(runRecord.id, runRecord.attempt, error, input.source);
       throw withRunId(error, runRecord.id);
     }
   }
@@ -119,12 +121,22 @@ export class DefaultDailyIngestionService implements DailyIngestionService {
 
       for (const outcome of outcomes) {
         if ("error" in outcome) {
+          const diagnostic = outcome.source === "arxiv"
+            ? classifyArxivFailure(outcome.error)
+            : undefined;
+          const errorMessage = diagnostic
+            ? arxivFailureMessage(diagnostic)
+            : errorToMessage(outcome.error);
           sourceSummaries.push({
             source: outcome.source,
             status: "failed",
             candidatesCount: 0,
-            errorMessage: errorToMessage(outcome.error)
+            errorMessage,
+            ...(diagnostic ? { diagnostic } : {})
           });
+          if (diagnostic) {
+            logger.warn("Daily arXiv source ingestion failed", diagnostic);
+          }
           continue;
         }
         const { source, fetched } = outcome;
@@ -188,7 +200,7 @@ export class DefaultDailyIngestionService implements DailyIngestionService {
         disposition: lease.disposition
       };
     } catch (error) {
-      await this.handleRunFailure(runRecord.id, runRecord.attempt, error);
+      await this.handleRunFailure(runRecord.id, runRecord.attempt, error, "aggregated");
       throw withRunId(error, runRecord.id);
     }
   }
@@ -222,6 +234,7 @@ export class DefaultDailyIngestionService implements DailyIngestionService {
   }
 
   private async fetchCandidates(adapter: DailySourceAdapter, dayWindow: ReturnType<typeof resolveUtcDayWindow>) {
+    adapter.validateConfiguration?.();
     const cursor = await this.repository.getSourceCursor(adapter.source);
     const windowEnd = minDate(dayWindow.dayEnd, new Date());
     const fallbackStart = startOfUtcDate(
@@ -260,7 +273,12 @@ export class DefaultDailyIngestionService implements DailyIngestionService {
     return makeFetchResult(candidates, uniqueFetched, windowStart, windowEnd, "watermark");
   }
 
-  private async handleRunFailure(runId: string, attempt: number, error: unknown) {
+  private async handleRunFailure(
+    runId: string,
+    attempt: number,
+    error: unknown,
+    source: DailyCandidateSourceValue | "aggregated"
+  ) {
     const appError =
       error instanceof AppError
         ? error
@@ -269,10 +287,15 @@ export class DefaultDailyIngestionService implements DailyIngestionService {
             error instanceof Error ? error.message : "Unknown ingestion error"
           );
 
+    const diagnostic = source === "arxiv" ? classifyArxivFailure(error) : undefined;
+    if (diagnostic) {
+      logger.warn("Daily arXiv source ingestion failed", diagnostic);
+    }
+
     await this.repository.markRunFailed({
       runId,
       attempt,
-      errorMessage: appError.message
+      errorMessage: diagnostic ? arxivFailureMessage(diagnostic) : appError.message
     });
   }
 }
