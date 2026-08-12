@@ -1,5 +1,7 @@
 # Cloud Mode A migration plan
 
+> **Classification: historical migration plan.** It does not maintain current integration or production status. See `docs/PROJECT_STATE.md`; use the focused operational runbooks for current procedures.
+
 Implementation update (2026-07-27): PR 4 is merged. The first release uses an Access-protected production `workers.dev` route with preview URLs disabled; production account deployment and credentialed Neon/Cloudflare acceptance remain pending. Obsidian plugin work has not started.
 
 Status: PR 1–PR 4 are approved, implemented, and merged. Production account deployment and credentialed acceptance remain in progress.

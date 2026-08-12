@@ -1,5 +1,7 @@
 # Cloud Mode A: Cloudflare Workers deployment
 
+> **Classification: deployment/operational reference.** Code presence and this runbook do not prove current deployment. See `docs/PROJECT_STATE.md` for production status and evidence gaps.
+
 Cloud Mode A deploys the Next.js dashboard and short interactive APIs to Cloudflare Workers through OpenNext. GitHub Actions remains the only cloud daily-job runner and connects directly to Neon. The Worker never runs migrations or the seven-stage daily pipeline. Its independent Cron handler only dispatches the existing GitHub workflow; see `docs/scheduler-reliability.md`.
 
 ## Runtime topology

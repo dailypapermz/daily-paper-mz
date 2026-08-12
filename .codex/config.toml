@@ -1,0 +1,14 @@
+[features]
+multi_agent = true
+
+[agents]
+enabled = true
+max_concurrent_threads_per_session = 3
+
+[agents.integration_reviewer]
+description = "Independent read-only integration gate for contracts, regressions, migrations, semantics, tests, and readiness."
+config_file = "./agents/integration-reviewer.toml"
+
+[agents.statekeeper]
+description = "Project-state reconciler and historian for authoritative master, lifecycle, production evidence, roadmap, and decisions."
+config_file = "./agents/statekeeper.toml"
