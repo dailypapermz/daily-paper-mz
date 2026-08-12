@@ -16,7 +16,6 @@ This canonical roadmap contains only non-integrated work: `PLANNED`, `IN DEVELOP
 
 | Item | Phase | Owner/evidence | Dependency | Acceptance gate | Ref |
 |---|---|---|---|---|---|
-| Agent Operating Model v1 | Agent Design | Primary / Coordinator | Approved governance specification and current master baseline | TOML/config validation, documentation reconciliation, independent integration review, PR to master | `codex/agent-operating-model-v1` |
 | Dashboard product experience | Product Experience | PR author `linyuan701`; delivery owner otherwise `UNKNOWN` | Current feed/UI contract | Reconcile against current master, focused tests, independent review | Draft PR #21 |
 | Independent saved/promoted states | Feedback Learning | PR author `linyuan701`; delivery owner otherwise `UNKNOWN` | PR #21 branch and frozen feedback semantics | Semantic review, persistence/API tests, master integration | Draft PR #22 |
 | Recommendation limits | Product Experience | PR author `linyuan701`; delivery owner otherwise `UNKNOWN` | PR #21 branch and frozen recommendation contract | Contract, UI/API tests, master integration | Draft PR #24 |
