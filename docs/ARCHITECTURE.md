@@ -1,6 +1,6 @@
 # Daily Paper integrated architecture
 
-This document describes only the implementation present at `origin/master@7e4e4602ed06893b41d60e774722157f52697e0f`. Historical designs and experimental workspaces are not architecture evidence. If this document conflicts with a later verified `origin/master`, the code wins and Statekeeper must reconcile the document.
+This document describes only the implementation present at `origin/master@4b137ec96fdcd9e63574d497efbf64707c8a2a65`. Historical designs and experimental workspaces are not architecture evidence. If this document conflicts with a later verified `origin/master`, the code wins and Statekeeper must reconcile the document.
 
 ## System topology
 

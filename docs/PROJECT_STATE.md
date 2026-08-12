@@ -7,8 +7,8 @@ This is the canonical current-state ledger. It records verified integrated code 
 | Field | Value |
 |---|---|
 | Authoritative branch | `origin/master` |
-| Authoritative SHA | `7e4e4602ed06893b41d60e774722157f52697e0f` |
-| Last verified | `2026-08-12T20:22:19+08:00` |
+| Authoritative SHA | `4b137ec96fdcd9e63574d497efbf64707c8a2a65` |
+| Last verified | `2026-08-12T21:15:09+08:00` |
 | GitHub repository | `linyuan701/daily-paper` |
 | Verification evidence | Remote ref, current master code, merged pull requests, and GitHub Actions records |
 
@@ -18,6 +18,7 @@ Lifecycle values are `PLANNED`, `EXPERIMENTAL`, `IN DEVELOPMENT`, and `INTEGRATE
 
 | Capability | Lifecycle | Production | Evidence |
 |---|---|---|---|
+| Agent Operating Model v1, persistent Coordinator/Reviewer/Statekeeper roles, and canonical project documentation | `INTEGRATED` | `NOT_APPLICABLE` | [PR #40](https://github.com/linyuan701/daily-paper/pull/40), merge `4b137ec96fdcd9e63574d497efbf64707c8a2a65`, `AGENTS.md`, `.codex/config.toml`, `.codex/agents/**`, and the four canonical documents |
 | Zotero sync, collection priorities, and tag semantics | `INTEGRATED` | `UNKNOWN` | `src/modules/zotero-sync/**`, `src/modules/collections/**`, `src/modules/tagging/**`; no current sync-run evidence inspected |
 | Profile snapshots and daily pre-recall refresh | `INTEGRATED` | `DEPLOYED` as part of the cloud daily path | `src/modules/profile-build/**`, `src/modules/scheduler/daily-pipeline.ts`; PR #39 and successful daily runs |
 | Four-source daily ingestion with source-specific freshness and partial-source isolation | `INTEGRATED` | `DEGRADED` | `src/modules/ingestion/**`; latest run completed but reported arXiv failure |
@@ -33,7 +34,7 @@ Lifecycle values are `PLANNED`, `EXPERIMENTAL`, `IN DEVELOPMENT`, and `INTEGRATE
 
 ## Current production health
 
-The latest verified daily run is [GitHub Actions run #31557628680](https://github.com/linyuan701/daily-paper/actions/runs/31557628680), created on 2026-08-12 against the authoritative SHA. It:
+The latest verified daily run is [GitHub Actions run #31557628680](https://github.com/linyuan701/daily-paper/actions/runs/31557628680), created on 2026-08-12 against the previous product baseline `7e4e4602ed06893b41d60e774722157f52697e0f`. Governance-only PR #40 later advanced the authoritative master without changing product/runtime behavior or this run's production implications. The run:
 
 - accepted business date `2026-08-11` as a new persisted run;
 - completed with `complete_with_warnings`;
@@ -53,7 +54,6 @@ Scheduling evidence:
 
 | Phase/work | Lifecycle | Ref | Owner/evidence |
 |---|---|---|---|
-| Agent Operating Model v1 | `IN DEVELOPMENT` | `codex/agent-operating-model-v1` | Primary / Coordinator; governance branch based on the authoritative SHA |
 | Dashboard product experience | `IN DEVELOPMENT` | Draft PR [#21](https://github.com/linyuan701/daily-paper/pull/21) | PR author `linyuan701`; base `master` |
 | Independent saved/promoted feedback states | `IN DEVELOPMENT` | Draft PR [#22](https://github.com/linyuan701/daily-paper/pull/22) | PR author `linyuan701`; base is PR #21's branch, not `master` |
 | Recommendation limits | `IN DEVELOPMENT` | Draft PR [#24](https://github.com/linyuan701/daily-paper/pull/24) | PR author `linyuan701`; base is PR #21's branch |
