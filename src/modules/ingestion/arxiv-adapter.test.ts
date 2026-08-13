@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { AppError } from "../../lib/errors";
 import * as sourceHttp from "./http";
 import { ARXIV_USER_AGENT, ArxivSourceAdapter } from "./arxiv-adapter";
 
@@ -57,6 +56,25 @@ describe("ArxivSourceAdapter", () => {
     expect(records[0].arxivId).toBe("2603.12345v1");
     expect(records[0].doi).toBe("10.1000/test");
     expect(records[0].authors).toEqual(["Alice", "Bob"]);
+  });
+
+  it("accepts the approved four-scope production shape", async () => {
+    const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(
+      new Response(wrapFeed(""), { status: 200 })
+    ));
+    vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
+    const scopes = ["q-bio.GN", "q-bio.MN", "q-bio.PE", "q-bio.QM"];
+    const adapter = new ArxivSourceAdapter({ categoryScopes: scopes });
+
+    await adapter.fetchCandidatesForDay({
+      runDate: new Date("2026-03-07T00:00:00Z"),
+      dayStart: new Date("2026-03-07T00:00:00Z"),
+      dayEnd: new Date("2026-03-07T23:59:59.999Z")
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(scopes.length);
+    expect(fetchMock.mock.calls.map(([input]) => new URL(String(input)).searchParams.get("search_query")))
+      .toEqual(scopes.map((scope) => `cat:${scope}`));
   });
 
   it("supports pagination beyond the first page", async () => {
@@ -194,8 +212,13 @@ describe("ArxivSourceAdapter", () => {
     });
   });
 
-  it("fails when category scopes are missing", async () => {
-    const adapter = new ArxivSourceAdapter({ categoryScopes: [] });
+  it.each([
+    ["missing", []],
+    ["blank", ["", "   ", "\t"]]
+  ])("fails before any arXiv fetch when category scopes are %s", async (_case, categoryScopes) => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
+    const adapter = new ArxivSourceAdapter({ categoryScopes });
 
     await expect(
       adapter.fetchCandidatesForDay({
@@ -203,7 +226,11 @@ describe("ArxivSourceAdapter", () => {
         dayStart: new Date(),
         dayEnd: new Date()
       })
-    ).rejects.toBeInstanceOf(AppError);
+    ).rejects.toMatchObject({
+      code: "ARXIV_SCOPE_REQUIRED",
+      details: { failureCategory: "configuration_error" }
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
 

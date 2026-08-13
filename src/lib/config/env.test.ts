@@ -9,6 +9,25 @@ import {
 } from "./llm";
 
 describe("deployment environment contract", () => {
+  it.each([
+    [undefined, []],
+    ["", []],
+    ["  ,  ", []],
+    ["q-bio.GN", ["q-bio.GN"]],
+    ["q-bio.GN, q-bio.MN", ["q-bio.GN", "q-bio.MN"]],
+    [
+      "q-bio.GN,q-bio.MN,q-bio.PE,q-bio.QM",
+      ["q-bio.GN", "q-bio.MN", "q-bio.PE", "q-bio.QM"]
+    ]
+  ])("parses ARXIV_CATEGORY_SCOPES without supplying a fallback", (value, expected) => {
+    const env = loadEnv({
+      DATABASE_URL: "file:./dev.db",
+      ARXIV_CATEGORY_SCOPES: value
+    });
+
+    expect(env.ARXIV_CATEGORY_SCOPES).toEqual(expected);
+  });
+
   it("keeps an absent deployment mode backward-compatible with Local Mode", () => {
     const env = loadEnv({ DATABASE_URL: "file:./dev.db" });
 

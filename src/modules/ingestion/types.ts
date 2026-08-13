@@ -75,6 +75,22 @@ export type AggregatedSourceIngestionSummary = {
   windowEnd?: string;
   filterMode?: "indexed_day" | "watermark" | "first_seen";
   errorMessage?: string;
+  diagnostic?: ArxivFailureDiagnostic;
+};
+
+export type ArxivFailureDiagnostic = {
+  source: "arxiv";
+  failureCode: "ARXIV_SCOPE_REQUIRED" | "ARXIV_API_ERROR" | "ARXIV_UNEXPECTED_ERROR";
+  stage: "configuration" | "request" | "ingestion";
+  failureCategory:
+    | "configuration_error"
+    | "rate_limit"
+    | "timeout"
+    | "network"
+    | "server_error"
+    | "http_error"
+    | "unknown";
+  retryable: boolean;
 };
 
 export type JournalFeedSourceRecord = {
@@ -94,6 +110,7 @@ export type UtcDayWindow = {
 
 export interface DailySourceAdapter {
   readonly source: DailyCandidateSourceValue;
+  validateConfiguration?(): void;
   fetchCandidatesForDay(input: UtcDayWindow): Promise<DailySourceAdapterCandidate[]>;
 }
 

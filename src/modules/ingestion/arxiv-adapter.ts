@@ -45,14 +45,19 @@ export class ArxivSourceAdapter implements DailySourceAdapter {
     this.maxPages = positiveInteger(input.maxPages, DEFAULT_ARXIV_MAX_PAGES);
   }
 
-  async fetchCandidatesForDay(_window: UtcDayWindow): Promise<DailySourceAdapterCandidate[]> {
+  validateConfiguration(): void {
     if (this.categoryScopes.length === 0) {
       throw new AppError(
         "ARXIV_SCOPE_REQUIRED",
         "arXiv ingestion requires at least one configured category scope",
-        400
+        400,
+        { failureCategory: "configuration_error" }
       );
     }
+  }
+
+  async fetchCandidatesForDay(_window: UtcDayWindow): Promise<DailySourceAdapterCandidate[]> {
+    this.validateConfiguration();
 
     const byExternalId = new Map<string, DailySourceAdapterCandidate>();
 
@@ -108,7 +113,7 @@ export class ArxivSourceAdapter implements DailySourceAdapter {
     } catch (error) {
       throw new AppError(
         "ARXIV_API_ERROR",
-        error instanceof Error ? error.message : "arXiv request failed",
+        "arXiv request failed",
         502,
         {
           failureCategory: error instanceof SourceHttpError ? error.kind : "unknown",
