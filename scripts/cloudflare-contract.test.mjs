@@ -59,7 +59,7 @@ test("Cloudflare scripts preserve the existing local commands", () => {
 });
 
 test("Wrangler targets a protected OpenNext custom Worker with the exact UTC Cron", () => {
-  assert.match(wrangler, /"name"\s*:\s*"daily-paper"/);
+  assert.match(wrangler, /"name"\s*:\s*"daily-paper-mz"/);
   assert.match(wrangler, /"main"\s*:\s*"custom-worker\.ts"/);
   assert.match(wrangler, /"nodejs_compat"/);
   assert.match(wrangler, /"workers_dev"\s*:\s*true/);
