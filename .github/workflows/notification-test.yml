@@ -92,3 +92,5 @@ jobs:
             process.exit(1);
           }
           NODE
+
+# Activate workflow in daily-paper-mz instance
