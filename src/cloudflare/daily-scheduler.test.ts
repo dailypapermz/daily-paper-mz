@@ -45,7 +45,7 @@ describe("Cloudflare daily scheduler", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1);
     const [url, init] = fetchImpl.mock.calls[0];
     expect(url).toBe(
-      "https://api.github.com/repos/linyuan701/daily-paper/actions/workflows/daily.yml/dispatches"
+      "https://api.github.com/repos/dailypapermz/daily-paper-mz/actions/workflows/daily.yml/dispatches"
     );
     expect(init?.method).toBe("POST");
     expect(new Headers(init?.headers).get("Authorization")).toBe("Bearer worker-secret");

@@ -83,7 +83,7 @@ test("custom Worker preserves OpenNext fetch and delegates only scheduled dispat
   assert.match(customWorker, /fetch:\s*openNextHandler\.fetch/);
   assert.match(customWorker, /scheduled\(controller, env\)/);
   assert.match(customWorker, /handleDailySchedule\(controller, env\)/);
-  assert.match(dailyScheduler, /linyuan701\/daily-paper\/actions\/workflows\/daily\.yml\/dispatches/);
+  assert.match(dailyScheduler, /dailypapermz\/daily-paper-mz\/actions\/workflows\/daily\.yml\/dispatches/);
   assert.match(dailyScheduler, /ref:\s*["']master["']/);
   assert.match(dailyScheduler, /controller\.noRetry\(\)/);
   assert.doesNotMatch(

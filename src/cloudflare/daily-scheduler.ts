@@ -7,7 +7,7 @@ export const DAILY_SCHEDULER_CRON = "15 0 * * *";
 export const DAILY_SCHEDULER_SECRET = "DAILY_SCHEDULER_GITHUB_TOKEN";
 
 const DAILY_WORKFLOW_DISPATCH_URL =
-  "https://api.github.com/repos/linyuan701/daily-paper/actions/workflows/daily.yml/dispatches";
+  "https://api.github.com/repos/dailypapermz/daily-paper-mz/actions/workflows/daily.yml/dispatches";
 const GITHUB_API_VERSION = "2026-03-10";
 const REQUEST_TIMEOUT_MS = 15_000;
 

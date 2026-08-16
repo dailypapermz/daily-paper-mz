@@ -23,7 +23,7 @@ The Worker uses `controller.scheduledTime`, not the time at which a delayed Work
 
 The dispatch request is fixed to:
 
-- repository: `linyuan701/daily-paper`;
+- repository: `dailypapermz/daily-paper-mz`;
 - workflow: `daily.yml`;
 - ref: `master`;
 - input: a required, validated `runDate` in `YYYY-MM-DD` format.
@@ -34,8 +34,8 @@ There is no missing-date or implicit-today fallback.
 
 Do not send the token to Codex and do not save it in a repository file, GitHub Actions Variable, GitHub artifact, or Wrangler `vars`.
 
-1. In GitHub, create a fine-grained personal access token for resource owner `linyuan701`.
-2. Select only the `daily-paper` repository.
+1. In GitHub, create a fine-grained personal access token for resource owner `dailypapermz`.
+2. Select only the `daily-paper-mz` repository.
 3. Grant the minimum repository permission **Actions: Read and write**. GitHub may add read-only Metadata automatically.
 4. Set an expiry and record a private rotation reminder outside this repository.
 5. In Cloudflare Dashboard, open **Workers & Pages -> daily-paper -> Settings -> Variables and Secrets**.
